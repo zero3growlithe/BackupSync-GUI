@@ -18,6 +18,9 @@ the GUI only configures, monitors and starts them.
   folder has no launcher shortcut, the sync runs on its own instead.
 * **Sync now** runs a sync pass for the selected pair, **Sync all** walks the whole list
   one configuration at a time.
+* **F5 refreshes the list** — every source, destination and configuration file is re-checked,
+  so a drive that was connected or disconnected while the window stayed open is reflected
+  immediately.
 * **Open source folder** / **Open destination folder** open the pair's folders in Explorer.
 * **Add configuration** asks the same questions as `Setup-BackupSync.ps1`: source folder,
   destination folder, application to launch, delay before the second sync and the

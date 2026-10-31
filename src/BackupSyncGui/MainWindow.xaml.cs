@@ -57,7 +57,7 @@ public partial class MainWindow : Window
 
         EmptyStatePanel.Visibility = _items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         HeaderSummaryTextBlock.Text = DescribeCounts();
-        StatusFooterTextBlock.Text = "Scripts: " + App.Instance.PowerShellFolder;
+        StatusFooterTextBlock.Text = "Scripts: " + App.Instance.PowerShellFolder + "   •   F5 refreshes the list";
 
         if (previousSelection is not null)
         {
@@ -151,6 +151,19 @@ public partial class MainWindow : Window
             e.Handled = true;
             ExecuteSelected();
         }
+    }
+
+    /// <summary>F5 re-reads the registry and re-checks every folder, so drives that
+    /// appeared or disappeared while the window was open are reflected at once.</summary>
+    private async void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.F5)
+        {
+            return;
+        }
+        e.Handled = true;
+        await RefreshAsync();
+        StatusFooterTextBlock.Text = "Refreshed. " + DescribeCounts() + "   •   Scripts: " + App.Instance.PowerShellFolder;
     }
 
     /// <summary>

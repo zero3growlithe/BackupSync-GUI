@@ -9,7 +9,8 @@
         Background="{StaticResource WindowBackgroundBrush}"
         Foreground="{StaticResource TextBrush}"
         FontFamily="Segoe UI"
-        FontSize="13">
+        FontSize="13"
+        PreviewKeyDown="MainWindow_PreviewKeyDown">
 
     <Grid>
         <Grid.RowDefinitions>
