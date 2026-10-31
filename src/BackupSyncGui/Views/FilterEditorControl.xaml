@@ -1,0 +1,55 @@
+<UserControl x:Class="BackupSyncGui.Views.FilterEditorControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontFamily="Segoe UI"
+             Foreground="{StaticResource TextBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="{StaticResource InputBackgroundBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="6">
+            <TextBox x:Name="RulesTextBox"
+                     Style="{StaticResource MonoTextBoxStyle}"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Disabled"
+                     PreviewKeyDown="RulesTextBox_PreviewKeyDown" />
+        </Border>
+
+        <Grid Grid.Row="1" Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Button Content="Undo"
+                    Click="Undo_Click"
+                    Padding="12,5"
+                    Margin="0,0,6,0"
+                    ToolTip="Ctrl+Z" />
+            <Button Grid.Column="1"
+                    Content="Redo"
+                    Click="Redo_Click"
+                    Padding="12,5"
+                    ToolTip="Ctrl+Y" />
+
+            <TextBlock x:Name="HintTextBlock"
+                       Grid.Column="2"
+                       VerticalAlignment="Center"
+                       Margin="12,0,0,0"
+                       FontSize="11"
+                       TextAlignment="Right"
+                       TextWrapping="Wrap"
+                       Foreground="{StaticResource TextMutedBrush}"
+                       Text="Ctrl+Z undo · Ctrl+Y redo · Ctrl+S save" />
+        </Grid>
+    </Grid>
+</UserControl>

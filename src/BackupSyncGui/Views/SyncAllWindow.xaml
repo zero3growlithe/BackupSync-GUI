@@ -1,0 +1,50 @@
+<Window x:Class="BackupSyncGui.Views.SyncAllWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Sync all"
+        Width="620"
+        Height="380"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource WindowBackgroundBrush}"
+        Foreground="{StaticResource TextBrush}"
+        FontFamily="Segoe UI"
+        FontSize="13">
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Style="{StaticResource SectionTitleStyle}" Text="Syncing every configuration" />
+
+        <TextBlock x:Name="ProgressTextBlock"
+                   Grid.Row="1"
+                   Margin="0,8,0,12"
+                   Style="{StaticResource HintTextStyle}"
+                   Text="Starting…" />
+
+        <Border Grid.Row="2"
+                Background="{StaticResource SurfaceBrush}"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="7">
+            <ListBox x:Name="ResultsListBox" Style="{StaticResource ItemListBoxStyle}" ItemContainerStyle="{StaticResource CompactListBoxItemStyle}" />
+        </Border>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <TextBlock x:Name="NoteTextBlock"
+                       VerticalAlignment="Center"
+                       Margin="0,0,12,0"
+                       FontSize="11"
+                       Foreground="{StaticResource TextMutedBrush}"
+                       Text="Each sync opens its own console window; answer any conflict prompt there." />
+            <Button x:Name="StopButton" Content="Stop after current" Click="Stop_Click" Margin="0,0,8,0" />
+            <Button x:Name="CloseButton" Content="Close" Click="Close_Click" Style="{StaticResource AccentButtonStyle}" IsEnabled="False" />
+        </StackPanel>
+    </Grid>
+</Window>

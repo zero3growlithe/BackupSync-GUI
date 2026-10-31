@@ -1,0 +1,61 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore src/BackupSyncGui/BackupSyncGui.csproj
+
+      - name: Build
+        run: dotnet build src/BackupSyncGui/BackupSyncGui.csproj -c Release --no-restore -p:SourceRevisionId=${{ github.sha }}
+
+      - name: Publish
+        run: dotnet publish src/BackupSyncGui/BackupSyncGui.csproj -c Release -r win-x64 --self-contained false -o publish -p:SourceRevisionId=${{ github.sha }}
+
+      - name: Verify PowerShell payload
+        shell: pwsh
+        run: |
+          $required = @(
+            'publish\PowerShell\BackupSync.ps1',
+            'publish\PowerShell\BackupSync.Common.ps1',
+            'publish\PowerShell\Start-BackupSync.ps1',
+            'publish\PowerShell\Setup-BackupSync.ps1',
+            'publish\PowerShell\Initialize-BackupSync.ps1'
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path -LiteralPath $file)) { throw "Missing published file: $file" }
+          }
+          Get-ChildItem -LiteralPath 'publish' -Recurse -File |
+            Select-Object FullName, Length |
+            Sort-Object FullName |
+            Format-Table -AutoSize
+
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path publish\* -DestinationPath BackupSyncGui-win-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BackupSyncGui-win-x64
+          path: BackupSyncGui-win-x64.zip
+          if-no-files-found: error

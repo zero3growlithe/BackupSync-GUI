@@ -1,0 +1,25 @@
+## Build results
+[Bb]in/
+[Oo]bj/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Visual Studio
+.vs/
+*.vspscc
+*.vssscc
+
+## Rider
+.idea/
+
+## Packages
+*.nupkg
+packages/
+
+## OS noise
+Thumbs.db
+desktop.ini
+.DS_Store
