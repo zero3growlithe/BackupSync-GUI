@@ -96,7 +96,7 @@ function UnionKeys([object[]]$Sources) {
     $keys=New-Object 'string[]' $unique.Count
     $unique.CopyTo($keys)
     [Array]::Sort($keys)
-    ,$keys
+    $keys
 }
 function ReadState([string]$Root) {
     $p=Join-Path $Root 'backup_version.txt'
