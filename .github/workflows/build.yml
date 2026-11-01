@@ -13,10 +13,20 @@ jobs:
   engine-tests:
     runs-on: windows-latest
     timeout-minutes: 20
+    env:
+      # The suite compares a generated shortcut target with %TEMP%. This runner reports %TEMP% in 8.3
+      # form (C:\Users\RUNNER~1\...), which the shell expands when it saves the shortcut, so the two
+      # never match. Use a short path that needs no truncation.
+      TMP: C:\bs-temp
+      TEMP: C:\bs-temp
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Prepare temporary folder
+        shell: pwsh
+        run: New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
 
       - name: Sync engine integration tests
         shell: powershell
