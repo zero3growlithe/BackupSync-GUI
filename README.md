@@ -74,6 +74,18 @@ dotnet publish src\BackupSyncGui\BackupSyncGui.csproj -c Release -r win-x64 --se
 commands on `windows-latest` and uploads `BackupSyncGui-win-x64.zip` as an artifact named
 `BackupSyncGui-win-x64`.
 
+## Icon
+
+`src/BackupSyncGui/Assets/App.ico` is the mark used everywhere: it is embedded as the
+executable icon (`ApplicationIcon` in the project file), so Explorer, the taskbar, Alt-Tab
+and the window title bar all pick it up automatically. It contains ten sizes from 16 to
+256 px, each rendered natively rather than resampled.
+
+The icon is generated, not hand-painted: [tools/generate-icon.py](tools/generate-icon.py)
+draws it with Pillow only (no SVG toolchain, no binaries checked in by hand) and writes
+`App-256.png` as a preview. Change the geometry constants at the top of that script and
+run `python tools/generate-icon.py` to regenerate both files.
+
 ## Notes and limitations
 
 * A sync run opens its own console window on purpose: the engine asks questions when it

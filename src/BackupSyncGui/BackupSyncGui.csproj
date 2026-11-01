@@ -16,6 +16,7 @@
     <Company>zero3growlithe</Company>
     <Product>BackupSync GUI</Product>
     <Description>Desktop front-end for the BackupSync PowerShell utility.</Description>
+    <ApplicationIcon>Assets\App.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
