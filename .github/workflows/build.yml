@@ -31,12 +31,16 @@ jobs:
       - name: Sync engine integration tests
         shell: powershell
         working-directory: PowerShell
-        run: .\Test-BackupSync.ps1
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Test-BackupSync.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Initialization tests
         shell: powershell
         working-directory: PowerShell
-        run: .\Test-Initialization.ps1
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Test-Initialization.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   build:
     needs: engine-tests
