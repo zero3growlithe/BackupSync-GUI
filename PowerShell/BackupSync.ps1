@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory=$true,Position=0)][string]$Source,
     [switch]$SyncOnly,[switch]$Preview,[switch]$RebuildBaseline,
-    [switch]$LaunchOnly,[switch]$SkipDelay)
+    [switch]$LaunchOnly,[switch]$SkipDelay,[switch]$Rehash)
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'BackupSync.Common.ps1')
@@ -87,8 +87,12 @@ try {
             $pairId=$b.PairId; $computers=$b.Computers; $generation=$b.Generation
         }
     } elseif (-not $Preview -and (Ask 'Rebuild baseline? Current files will be merged without inferring deletions' @('Y','N')) -eq 'N') { exit 0 }
-    $left=Snapshot $Source; $right=Snapshot $Destination
-    $keys=@(@($left.Files.Keys)+@($right.Files.Keys)+@($base.Keys) | Sort-Object -Unique)
+    # Files whose size and write time still match the previous state keep their recorded hash, so this
+    # snapshot reads the directory tree instead of every byte. -Rehash forces a full read of both sides.
+    $sourceCache=if ($Rehash -or $null -eq $a) { $null } else { $a.Cache }
+    $destinationCache=if ($Rehash -or $null -eq $b) { $null } else { $b.Cache }
+    $left=Snapshot $Source $sourceCache; $right=Snapshot $Destination $destinationCache
+    $keys=@(UnionKeys @($left.Files,$right.Files,$base))
     $operations=New-Object 'Collections.Generic.List[object]'
     foreach ($key in $keys) {
         if (-not (Selected $key)) { continue }
@@ -130,7 +134,9 @@ try {
             } elseif ($choice -eq 'A') { exit 0 }
         } else { $approved.Add($op) }
     }
-    $checkLeft=Snapshot $Source; $checkRight=Snapshot $Destination
+    $checkSourceCache=$null; $checkDestinationCache=$null
+    if (-not $Rehash) { $checkSourceCache=$left.Files; $checkDestinationCache=$right.Files }
+    $checkLeft=Snapshot $Source $checkSourceCache; $checkRight=Snapshot $Destination $checkDestinationCache
     foreach ($side in @(@{Old=$left.Files; New=$checkLeft.Files},@{Old=$right.Files; New=$checkRight.Files})) {
         if ($side.Old.Count -ne $side.New.Count) { throw 'Files changed during review. Retry sync.' }
         foreach ($key in $side.Old.Keys) { if ((Hash $side.Old $key) -ne (Hash $side.New $key)) { throw "File changed during review: $key" } }
@@ -155,18 +161,28 @@ try {
     foreach ($key in @(@($left.Dirs.Keys)+@($right.Dirs.Keys) | Sort-Object -Unique)) {
         foreach ($root in @($Source,$Destination)) { $null=New-Item -ItemType Directory -Path (LocalPath $root $key) -Force }
     }
-    $finalLeft=Snapshot $Source; $finalRight=Snapshot $Destination
+    # Every path this run touched is rehashed for the new baseline: a copy keeps the source's size and
+    # write time, so a cached hash for that path could otherwise still describe the file it replaced.
+    foreach ($op in $approved) { $null=$checkLeft.Files.Remove($op.Path); $null=$checkRight.Files.Remove($op.Path) }
+    $finalSourceCache=$null; $finalDestinationCache=$null
+    if (-not $Rehash) { $finalSourceCache=$checkLeft.Files; $finalDestinationCache=$checkRight.Files }
+    $finalLeft=Snapshot $Source $finalSourceCache; $finalRight=Snapshot $Destination $finalDestinationCache
     $newBase=@{}; $pending=0
-    foreach ($key in @(@($keys)+@($finalLeft.Files.Keys)+@($finalRight.Files.Keys) | Sort-Object -Unique)) {
+    foreach ($key in @(UnionKeys @($keys,$finalLeft.Files,$finalRight.Files))) {
         if (-not (Selected $key)) { continue }
         $lh=Hash $finalLeft.Files $key; $rh=Hash $finalRight.Files $key
-        if ($lh -eq $rh) { if ($null -ne $lh) { $newBase[$key]=@{Hash=$lh} } }
+        if ($lh -eq $rh) {
+            if ($null -ne $lh) {
+                $agreed=$finalLeft.Files[$key]
+                $newBase[$key]=@{Hash=$lh; Length=$agreed.Length; Modified=$agreed.Modified}
+            }
+        }
         else { $pending++; if ($base.ContainsKey($key)) { $newBase[$key]=$base[$key] } }
     }
     $computer=[Environment]::MachineName
     if (-not $computers.ContainsKey($computer)) { $computers[$computer]=0 }
     $computers[$computer]++
-    $json=@{Schema=1; PairId=$pairId; Generation=($generation+1); Computers=$computers; Files=$newBase;
+    $json=@{Schema=2; PairId=$pairId; Generation=($generation+1); Computers=$computers; Files=$newBase;
         LastSyncUtc=[DateTime]::UtcNow.ToString('o'); LastSource=$Source; LastDestination=$Destination} | ConvertTo-Json -Depth 8
     WriteState $Source $json; WriteState $Destination $json
     Write-Host "Sync complete. $($approved.Count) file operations; $pending unresolved file(s)."

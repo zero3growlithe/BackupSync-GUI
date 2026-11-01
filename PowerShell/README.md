@@ -89,7 +89,15 @@ The setup, initialization and version files at each root, recovery directories, 
 
 ## How changes and conflicts are detected
 
-`backup_version.txt` is JSON despite its .txt extension. It stores SHA-256 hashes of the last agreed files, a sync ID, generation, UTC audit time, and a map of computer names to sync counters. Do not edit it manually. Hash snapshots determine changes; computer counters alone cannot distinguish editing from deletion, and timestamps can be misleading across computers.
+`backup_version.txt` is JSON despite its .txt extension. It stores SHA-256 hashes of the last agreed files together with their size and last write time, a sync ID, generation, UTC audit time, and a map of computer names to sync counters. Do not edit it manually. Hash snapshots determine changes; computer counters alone cannot distinguish editing from deletion, and timestamps can be misleading across computers.
+
+Hashes decide every direction, but they do not have to be recomputed from disk on every run. When a file's size and last write time still match the recorded values, its stored hash is reused and the file is not read at all, which turns a repeat sync of an unchanged folder into a directory walk. Everything a run actually touched is rehashed before the new baseline is written, so the recorded hashes describe what is really on disk. To ignore the stored metadata and re-read every file on both sides:
+
+```powershell
+& '\\server\share\BackupSync\Start-BackupSync.ps1' -Source 'D:\Games\Example' -SyncOnly -Rehash
+```
+
+Use `-Rehash` when something outside this utility may have rewritten a file without changing its size or its write time; some patchers, archival tools and virtualisation tools do exactly that. Metadata written by earlier versions is still read and is upgraded the first time it is rewritten.
 
 | Source versus baseline | Destination versus baseline | Result |
 | --- | --- | --- |

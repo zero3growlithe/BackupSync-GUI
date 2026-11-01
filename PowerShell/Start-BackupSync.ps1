@@ -1,7 +1,7 @@
 #requires -Version 5.1
 [CmdletBinding()]
 param([Parameter(Mandatory=$true,Position=0)][string]$Source,
-    [switch]$SyncOnly,[switch]$Preview,[switch]$RebuildBaseline)
+    [switch]$SyncOnly,[switch]$Preview,[switch]$RebuildBaseline,[switch]$Rehash)
 $engine=Join-Path $PSScriptRoot 'BackupSync.ps1'
 $powershell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $script:EngineExitCode=0
@@ -10,9 +10,9 @@ function InvokeEngine([string[]]$ExtraArguments=@()) {
     & $powershell @arguments
     $script:EngineExitCode=$LASTEXITCODE
 }
-if ($SyncOnly -or $Preview -or $RebuildBaseline) {
+if ($SyncOnly -or $Preview -or $RebuildBaseline -or $Rehash) {
     $arguments=New-Object 'Collections.Generic.List[string]'
-    foreach ($name in @('SyncOnly','Preview','RebuildBaseline')) { if ((Get-Variable -Name $name -ValueOnly)) { $arguments.Add('-'+$name) } }
+    foreach ($name in @('SyncOnly','Preview','RebuildBaseline','Rehash')) { if ((Get-Variable -Name $name -ValueOnly)) { $arguments.Add('-' + $name) } }
     InvokeEngine $arguments.ToArray()
     $result=$script:EngineExitCode
     if ($result -ne 0) { $null=Read-Host 'Sync failed. Press Enter to close' }

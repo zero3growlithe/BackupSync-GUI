@@ -10,7 +10,26 @@ permissions:
   contents: read
 
 jobs:
+  engine-tests:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync engine integration tests
+        shell: powershell
+        working-directory: PowerShell
+        run: .\Test-BackupSync.ps1
+
+      - name: Initialization tests
+        shell: powershell
+        working-directory: PowerShell
+        run: .\Test-Initialization.ps1
+
   build:
+    needs: engine-tests
     runs-on: windows-latest
 
     steps:

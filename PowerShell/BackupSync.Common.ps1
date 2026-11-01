@@ -44,7 +44,7 @@ function LocalPath([string]$Root,[string]$Relative) {
     if (-not $p.StartsWith($Root+'\',[StringComparison]::OrdinalIgnoreCase)) { throw "Unsafe relative path: $Relative" }
     $p
 }
-function Snapshot([string]$Root) {
+function Snapshot([string]$Root,[hashtable]$Cache=$null) {
     $files=@{}; $dirs=@{}; $stack=New-Object 'Collections.Generic.Stack[string]'
     $stack.Push($Root)
     while ($stack.Count -gt 0) {
@@ -58,31 +58,63 @@ function Snapshot([string]$Root) {
                 $stack.Push($item.FullName)
                 if (Selected $rel) { $dirs[$rel]=$true }
             } elseif (Selected $rel) {
-                $before=Get-Item -LiteralPath $item.FullName -Force
-                $hash=(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
-                $after=Get-Item -LiteralPath $item.FullName -Force
-                if ($before.Length -ne $after.Length -or $before.LastWriteTimeUtc -ne $after.LastWriteTimeUtc) {
-                    throw "File changed while scanning: $($item.FullName)"
+                $length=$item.Length; $modified=$item.LastWriteTimeUtc
+                $known=$null
+                if ($null -ne $Cache) { $known=$Cache[$rel] }
+                if ($null -ne $known -and $known.Length -eq $length -and $known.Modified -eq $modified.ToString('o')) {
+                    # Same length and same write time as a hash we already recorded: the file is not read at all.
+                    # Hashes still decide every direction; metadata only decides whether a read is needed.
+                    $files[$rel]=$known
+                } else {
+                    $before=Get-Item -LiteralPath $item.FullName -Force
+                    $hash=(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
+                    $after=Get-Item -LiteralPath $item.FullName -Force
+                    if ($before.Length -ne $after.Length -or $before.LastWriteTimeUtc -ne $after.LastWriteTimeUtc -or
+                        $after.Length -ne $length -or $after.LastWriteTimeUtc -ne $modified) {
+                        throw "File changed while scanning: $($item.FullName)"
+                    }
+                    $files[$rel]=@{Hash=$hash; Length=$after.Length; Modified=$after.LastWriteTimeUtc.ToString('o')}
                 }
-                $files[$rel]=@{Hash=$hash; Length=$after.Length; Modified=$after.LastWriteTimeUtc.ToString('o')}
             }
         }
     }
     @{Files=$files; Dirs=$dirs}
 }
 function Hash($Files,[string]$Key) { if ($Files.ContainsKey($Key)) { [string]$Files[$Key].Hash } else { $null } }
+# Sorted union of key maps and key lists, without Sort-Object's per-element pipeline cost.
+function UnionKeys([object[]]$Sources) {
+    $unique=New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::Ordinal)
+    foreach ($source in $Sources) {
+        if ($null -eq $source) { continue }
+        if ($source -is [string]) { $null=$unique.Add($source); continue }
+        if ($source -is [hashtable]) {
+            foreach ($key in $source.Keys) { $null=$unique.Add([string]$key) }
+        } else {
+            foreach ($key in $source) { $null=$unique.Add([string]$key) }
+        }
+    }
+    $keys=New-Object 'string[]' $unique.Count
+    $unique.CopyTo($keys)
+    [Array]::Sort($keys)
+    ,$keys
+}
 function ReadState([string]$Root) {
     $p=Join-Path $Root 'backup_version.txt'
     if (-not (Test-Path -LiteralPath $p)) { return $null }
     $obj=Get-Content -LiteralPath $p -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($obj.Schema -ne 1) { throw "Unsupported version file at $Root" }
-    $files=@{}; $computers=@{}
+    if ($obj.Schema -ne 1 -and $obj.Schema -ne 2) { throw "Unsupported version file at $Root" }
+    $files=@{}; $computers=@{}; $cache=@{}
     foreach ($prop in $obj.Files.PSObject.Properties) {
         $null=LocalPath $Root $prop.Name
         $files[$prop.Name]=@{Hash=[string]$prop.Value.Hash}
+        # A complete record can skip hashing later; anything else is rehashed. Schema 1 has no sizes or times.
+        $length=$prop.Value.PSObject.Properties['Length']; $modified=$prop.Value.PSObject.Properties['Modified']
+        if ($null -ne $length -and $null -ne $modified) {
+            $cache[$prop.Name]=@{Hash=[string]$prop.Value.Hash; Length=[long]$length.Value; Modified=[string]$modified.Value}
+        }
     }
     foreach ($prop in $obj.Computers.PSObject.Properties) { $computers[$prop.Name]=[long]$prop.Value }
-    @{PairId=[string]$obj.PairId; Generation=[long]$obj.Generation; Files=$files; Computers=$computers;
+    @{PairId=[string]$obj.PairId; Generation=[long]$obj.Generation; Files=$files; Computers=$computers; Cache=$cache;
         RawHash=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash}
 }
 function AssertCurrent([string]$Path,$Expected) {
@@ -177,7 +209,7 @@ function InitializeSource([string]$Source,[string]$Destination) {
             $plan.Add(@{Path=$key; FromHash=$fromHash; ToHash=$toHash})
         }
         # Check both complete selected views again after interactive review.
-        $checkFrom=Snapshot $Destination; $checkTo=Snapshot $Source
+        $checkFrom=Snapshot $Destination $from.Files; $checkTo=Snapshot $Source $to.Files
         foreach ($side in @(@{Old=$from.Files; New=$checkFrom.Files},@{Old=$to.Files; New=$checkTo.Files})) {
             if ($side.Old.Count -ne $side.New.Count) { throw 'Files changed during initialization review. Rerun setup.' }
             foreach ($key in $side.Old.Keys) {
