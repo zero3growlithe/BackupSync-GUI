@@ -208,6 +208,18 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void CreateSyncedCopy_Click(object sender, RoutedEventArgs e)
+    {
+        CreateSyncedCopyWindow window = new CreateSyncedCopyWindow { Owner = this };
+        bool? result = window.ShowDialog();
+        if (result == true && window.ConfigurationCreated)
+        {
+            await RefreshAsync();
+            StatusFooterTextBlock.Text = "Synced copy created: " + window.CreatedSourcePath +
+                                         " is now kept in sync with " + window.CreatedDestinationPath + ".";
+        }
+    }
+
     private async void SyncAll_Click(object sender, RoutedEventArgs e)
     {
         if (_items.Count == 0)
@@ -375,7 +387,8 @@ public partial class MainWindow : Window
             MessageBox.Show(
                 this,
                 "That folder does not contain " + ScriptLocator.EngineFileName + ", " +
-                ScriptLocator.CommonFileName + " and " + ScriptLocator.StartScriptFileName + ".",
+                ScriptLocator.CommonFileName + ", " + ScriptLocator.StartScriptFileName + " and " +
+                ScriptLocator.CopyScriptFileName + ".",
                 "BackupSync",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);

@@ -18,13 +18,15 @@ internal static class ScriptLocator
 
     public const string InitializationScriptFileName = "Initialize-BackupSync.ps1";
 
+    public const string CopyScriptFileName = "New-SyncCopy.ps1";
+
     public static bool IsValidFolder(string? folder)
     {
         if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
         {
             return false;
         }
-        string[] required = { EngineFileName, CommonFileName, StartScriptFileName };
+        string[] required = { EngineFileName, CommonFileName, StartScriptFileName, CopyScriptFileName };
         foreach (string name in required)
         {
             if (!File.Exists(Path.Combine(folder, name)))

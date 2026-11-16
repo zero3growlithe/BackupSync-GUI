@@ -44,6 +44,10 @@
                             Click="AddConfiguration_Click"
                             Style="{StaticResource AccentButtonStyle}"
                             Margin="0,0,8,0" />
+                    <Button Content="Create synced copy"
+                            Click="CreateSyncedCopy_Click"
+                            Margin="0,0,8,0"
+                            ToolTip="Copy a folder into a new destination once, then keep the two in sync" />
                     <Button Content="Sync all" Click="SyncAll_Click" />
                 </StackPanel>
             </Grid>

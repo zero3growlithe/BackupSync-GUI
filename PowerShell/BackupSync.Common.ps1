@@ -9,9 +9,11 @@ function Ask([string]$Message,[string[]]$Choices) {
 function FullPath([string]$Path) { [IO.Path]::GetFullPath($Path).TrimEnd('\','/') }
 function Reserved([string]$Path) {
     $parts=$Path -split '/'
-    ($parts[0] -in @('backup_setup.txt','backup_init.txt','backup_version.txt','.backup_sync_recovery','.backup_sync.lock') -or
+    ($parts[0] -in @('backup_setup.txt','backup_init.txt','backup_version.txt','create_copy_setup.txt','.backup_sync_recovery','.backup_sync.lock') -or
         $parts[-1] -like '*.backup-sync.lnk' -or $parts[-1] -like '.backup-sync-tmp-*')
 }
+# Rules from SetSelectionRules. '$' rules mark files the destination keeps as a link to the source.
+$script:Includes=@(); $script:Excludes=@(); $script:LinkRules=@()
 function Glob([string]$Pattern) {
     $regex=''
     for ($i=0; $i -lt $Pattern.Length; $i++) {
@@ -31,8 +33,14 @@ function Matches([string]$Path,[string]$Pattern) {
     $prefix=if ($Pattern.Contains('/')) { '^' } else { '(?:^|/)' }
     $Path -match ($prefix+(Glob $Pattern)+'(?:/.*)?$')
 }
+function IsLinked([string]$Path) {
+    foreach ($pattern in $script:LinkRules) { if (Matches $Path $pattern) { return $true } }
+    return $false
+}
 function Selected([string]$Path) {
     if (Reserved $Path) { return $false }
+    # A '$' rule means "the destination holds a link to this file", so the file itself never syncs as content.
+    if (IsLinked $Path) { return $false }
     $yes=$script:Includes.Count -eq 0
     foreach ($pattern in $script:Includes) { if (Matches $Path $pattern) { $yes=$true; break } }
     if (-not $yes) { return $false }
@@ -52,6 +60,8 @@ function Snapshot([string]$Root,[hashtable]$Cache=$null) {
             $rel=$item.FullName.Substring($Root.Length+1).Replace('\','/')
             if (Reserved $rel) { continue }
             if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                # Expected where a '$' rule put a link; any other link is still a hard stop.
+                if (IsLinked $rel) { continue }
                 throw "Link/junction encountered: $($item.FullName). Move it outside this sync tree."
             }
             if ($item.PSIsContainer) {
@@ -150,6 +160,34 @@ function CopyChecked([string]$FromRoot,[string]$ToRoot,[string]$Relative,[string
         Write-Host "Copied $Relative -> $ToRoot"
     } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }
 }
+# Resolved target of a symbolic link/junction, or $null for an ordinary file.
+function LinkTargetOf([string]$Path) {
+    $item=Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if ($null -eq $item) { return $null }
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) { return $null }
+    $target=$item.PSObject.Properties['LinkTarget']
+    if ($null -ne $target -and $target.Value) { return [string]($target.Value | Select-Object -First 1) }
+    $legacy=$item.PSObject.Properties['Target']
+    if ($null -ne $legacy -and $legacy.Value) { return [string]($legacy.Value | Select-Object -First 1) }
+    return $null
+}
+# Symbolic link first (works across volumes), hard link as the fallback (needs one volume, needs no rights).
+function NewLink([string]$Target,[string]$LinkPath) {
+    $parent=Split-Path -Parent $LinkPath
+    if ($parent) { $null=New-Item -ItemType Directory -Path $parent -Force }
+    $symbolicError=''
+    try {
+        $null=New-Item -ItemType SymbolicLink -Path $LinkPath -Target $Target -ErrorAction Stop
+        return 'Symbolic'
+    } catch { $symbolicError=$_.Exception.Message }
+    try {
+        $null=New-Item -ItemType HardLink -Path $LinkPath -Target $Target -ErrorAction Stop
+        return 'Hard'
+    } catch {
+        throw ("Could not link '$LinkPath' to '$Target'. A file symbolic link needs administrator rights or Developer Mode; " +
+            "a hard link needs both paths on the same volume. Symbolic: $symbolicError Hard: $($_.Exception.Message)")
+    }
+}
 function WriteState([string]$Root,[string]$Json) {
     $path=Join-Path $Root 'backup_version.txt'
     $temp=Join-Path $Root ('.backup-sync-tmp-'+[guid]::NewGuid().ToString('N'))
@@ -163,16 +201,18 @@ function WriteState([string]$Root,[string]$Json) {
 }
 # Parse the same rule format for normal sync and initialization.
 function SetSelectionRules([string[]]$Lines,[int]$Start=0) {
-    $script:Includes=@(); $script:Excludes=@()
+    $script:Includes=@(); $script:Excludes=@(); $script:LinkRules=@()
     for ($i=$Start; $i -lt $Lines.Count; $i++) {
         $line=$Lines[$i].Trim()
         if ($line -eq '' -or $line.StartsWith('#')) { continue }
-        if ($line -notmatch '^[+-].+') { throw "Invalid selection rule: $line" }
+        if ($line -notmatch '^[+\-$].+') { throw "Invalid selection rule: $line" }
         $pattern=$line.Substring(1).Trim().Replace('\','/').TrimEnd('/')
         if ([string]::IsNullOrWhiteSpace($pattern) -or $pattern.StartsWith('/') -or $pattern.Contains(':') -or ($pattern -split '/') -contains '..') {
             throw "Rules must be relative paths without '..': $line"
         }
-        if ($line[0] -eq '+') { $script:Includes+=$pattern } else { $script:Excludes+=$pattern }
+        if ($line[0] -eq '+') { $script:Includes+=$pattern }
+        elseif ($line[0] -eq '-') { $script:Excludes+=$pattern }
+        else { $script:LinkRules+=$pattern }
     }
 }
 

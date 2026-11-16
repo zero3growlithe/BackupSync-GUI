@@ -94,6 +94,97 @@ internal static class BackupSyncProcessRunner
         });
     }
 
+    /// <summary>
+    /// Runs New-SyncCopy.ps1. Unlike a sync, the copy answers no questions, so its output is
+    /// streamed into the window instead of a console.
+    /// </summary>
+    public static async Task<InitializationResult> RunSyncCopyAsync(
+        string powerShellFolder,
+        string sourceFolder,
+        string destinationFolder,
+        bool copyEverything,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        string scriptPath = ScriptLocator.GetScriptPath(powerShellFolder, ScriptLocator.CopyScriptFileName);
+        string arguments = "-NoProfile -ExecutionPolicy Bypass -File " + Quote(scriptPath) +
+                           " -Source " + Quote(sourceFolder) +
+                           " -Destination " + Quote(destinationFolder);
+        if (copyEverything)
+        {
+            arguments += " -CopyAll";
+        }
+
+        ProcessStartInfo startInfo = new ProcessStartInfo
+        {
+            FileName = PowerShellExecutablePath,
+            Arguments = arguments,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            WorkingDirectory = powerShellFolder,
+        };
+
+        StringBuilder output = new StringBuilder();
+        using Process process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+        bool wasCancelled = false;
+
+        void Collect(object sender, DataReceivedEventArgs args)
+        {
+            if (args.Data is null)
+            {
+                return;
+            }
+            lock (output)
+            {
+                output.AppendLine(args.Data);
+            }
+            progress?.Report(args.Data);
+        }
+
+        process.OutputDataReceived += Collect;
+        process.ErrorDataReceived += Collect;
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            process.WaitForExit();
+        }
+        catch (OperationCanceledException)
+        {
+            wasCancelled = true;
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    process.WaitForExit(10000);
+                }
+            }
+            catch (Exception)
+            {
+                // The process may have exited on its own between the check and the kill.
+            }
+        }
+
+        string text;
+        lock (output)
+        {
+            text = output.ToString();
+        }
+        if (wasCancelled)
+        {
+            text += Environment.NewLine + "The copy was stopped.";
+            return new InitializationResult { ExitCode = -1, Output = text };
+        }
+        return new InitializationResult { ExitCode = process.ExitCode, Output = text };
+    }
+
     public static async Task<InitializationResult> RunInitializationAsync(
         string powerShellFolder,
         string sourceFolder,

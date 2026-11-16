@@ -30,8 +30,8 @@ try {
     if ($Source -eq $Destination -or $Source.StartsWith($Destination+'\',[StringComparison]::OrdinalIgnoreCase) -or
         $Destination.StartsWith($Source+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Source and destination must be separate, non-nested folders.' }
     $exe=''; $delay=10; $index=1
-    if ($index -lt $lines.Count -and $lines[$index] -notmatch '^\s*[+-]') { $exe=$lines[$index].Trim().Trim('"'); $index++ }
-    if ($index -lt $lines.Count -and $lines[$index] -notmatch '^\s*[+-]') {
+    if ($index -lt $lines.Count -and $lines[$index] -notmatch '^\s*[+\-$]') { $exe=$lines[$index].Trim().Trim('"'); $index++ }
+    if ($index -lt $lines.Count -and $lines[$index] -notmatch '^\s*[+\-$]') {
         if (-not [string]::IsNullOrWhiteSpace($lines[$index])) {
             if (-not [int]::TryParse($lines[$index].Trim(),[ref]$delay) -or $delay -lt 0) { throw 'Delay must be a nonnegative integer.' }
         }

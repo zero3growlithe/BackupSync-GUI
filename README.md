@@ -26,6 +26,12 @@ the GUI only configures, monitors and starts them.
   destination folder, application to launch, delay before the second sync and the
   selection rules. It writes the same `backup_setup.txt` (UTF-8 with BOM, CRLF) and creates
   the same three shortcuts, so the result is interchangeable with the script.
+* **Create synced copy** copies a folder into a new destination once and then registers the pair.
+  It asks for the source and the destination folder, shows the source's `create_copy_setup.txt` in
+  an editable box and asks whether to apply it — rules, `$` link rules for heavy files that stay in
+  one place, and a template for the pair's `backup_setup.txt`. Unticking the box copies everything
+  instead. The copy streams its progress into the window, then the configuration, the shortcuts and
+  the list entry are created, so **Sync now** keeps the pair current from then on.
 * **Existing configuration detected** — when the chosen source folder already contains
   `backup_setup.txt`, the wizard offers to either add that configuration to the list
   without touching it, or to configure it again and overwrite it (the old file is kept as

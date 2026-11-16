@@ -42,6 +42,13 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Test-Initialization.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Synced copy tests
+        shell: powershell
+        working-directory: PowerShell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Test-SyncCopy.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   build:
     needs: engine-tests
     runs-on: windows-latest
@@ -72,7 +79,8 @@ jobs:
             'publish\PowerShell\BackupSync.Common.ps1',
             'publish\PowerShell\Start-BackupSync.ps1',
             'publish\PowerShell\Setup-BackupSync.ps1',
-            'publish\PowerShell\Initialize-BackupSync.ps1'
+            'publish\PowerShell\Initialize-BackupSync.ps1',
+            'publish\PowerShell\New-SyncCopy.ps1'
           )
           foreach ($file in $required) {
             if (-not (Test-Path -LiteralPath $file)) { throw "Missing published file: $file" }

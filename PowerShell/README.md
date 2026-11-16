@@ -51,6 +51,42 @@ The destination's `backup_version.txt`, `backup_setup.txt`, and `backup_init.txt
 
 Keep `BackupSync.Common.ps1` alongside the setup and sync scripts; they share the filtering and verified-copy functions in that file.
 
+## Create a synced copy of a folder
+
+`New-SyncCopy.ps1` fills a new destination in one pass and leaves a working pair behind:
+
+```powershell
+& '\\server\share\BackupSync\New-SyncCopy.ps1' -Source 'D:\Games\Example' -Destination 'E:\Backup\Example'
+```
+
+It copies every selected file, recreates the selected folders, writes the pair's `backup_setup.txt` inside the source folder, and writes no version baseline: the first normal sync establishes that, exactly as after a manual setup. The destination must exist already and must not overlap the source. `-CopyAll` ignores `create_copy_setup.txt` and copies everything; `-SetupFile` reads a setup file kept somewhere else. The exit code is 0 only when the copy and the configuration both succeeded.
+
+`create_copy_setup.txt` is optional and lives in the source folder. Above the template it uses the same rules as `backup_setup.txt`:
+
+```text
++Saves
++*.ini
+-**/cache/**
+-*.tmp
+$**/roms/**
+$**/*.iso
+
+# backup_setup.txt template
+{Destination}
+
+Example.exe
+10
++Saves
+$**/roms/**
+# end backup_setup.txt
+```
+
+- The rules decide what the first copy carries. No `+` rule means every file; exclusions still apply.
+- A rule that starts with `$` is a link rule. Those paths are not copied: the destination receives a symbolic link to the source file, or a hard link when symbolic links are refused, so a heavy image is stored once and both folders read the same bytes. Link rules are excluded from normal sync on both sides, so later runs never turn the link into a copy. A link only resolves while the source folder is reachable from the same computer, and it protects nothing against disk loss; keep them for emulator images you want to use directly from the copy folder.
+- The block between `# backup_setup.txt template` and `# end backup_setup.txt` becomes the pair's `backup_setup.txt`, with `{Destination}` and `{Source}` replaced. When its first effective line is not a rooted path, the destination, an empty executable slot and a 10 second delay are prepended. Without a template the setup rules above also become the pair's rules. A template whose first line does not resolve to the chosen destination is refused instead of silently syncing the wrong folder.
+- The file itself is reserved: it is never copied and never synchronized, exactly like `backup_setup.txt`, `backup_init.txt` and `backup_version.txt`.
+- Files that already exist in the destination are replaced, and the replaced version is kept under `.backup_sync_recovery`, so running the script again is safe. If the source folder matches something that is already a link in the destination, that link wins and no bytes are copied.
+
 ## backup_setup.txt
 
 Example:
@@ -140,5 +176,7 @@ Preview is read-only and does not acquire locks, launch the application, sleep, 
 
 `Test-BackupSync.ps1` runs integration checks in newly created TEMP folders under Windows PowerShell 5.1. It covers two-way copying, clock differences, recovery, repeat conflicts, deletion approval, edit/delete conflicts, wildcard rules, empty folders, metadata recovery, multiple-PC histories, and wrapper argument forwarding. Test fixtures remain in TEMP for inspection.
 
+
+`Test-SyncCopy.ps1` covers the first synced copy: copying with no setup file, `+`/`-` selection, `$` link rules and their targets, template rendering into `backup_setup.txt`, the copy-everything switch, replacing an existing copy with a link while keeping the recovery copy, the first sync afterwards (which must leave the link and its baseline alone), re-running the copy, and the folder guards.
 
 `Test-Initialization.ps1` adds initialization checks for filtering, opt-in, existing versions, conflicts, recovery, aborting, metadata exclusion, executable discovery after copying, and the first normal sync. Its setup integration check substitutes the interactive folder picker and answers while exercising actual config/shortcut creation.

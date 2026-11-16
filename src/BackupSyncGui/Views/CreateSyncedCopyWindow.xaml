@@ -1,0 +1,187 @@
+<Window x:Class="BackupSyncGui.Views.CreateSyncedCopyWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Create synced copy"
+        Width="840"
+        Height="720"
+        MinWidth="760"
+        MinHeight="620"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{StaticResource WindowBackgroundBrush}"
+        Foreground="{StaticResource TextBrush}"
+        FontFamily="Segoe UI"
+        FontSize="13">
+
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ── Step header ─────────────────────────────────────────────── -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <TextBlock x:Name="StepTitleTextBlock" Style="{StaticResource SectionTitleStyle}" Text="Source folder" />
+            <TextBlock x:Name="StepSubtitleTextBlock"
+                       Margin="0,5,0,0"
+                       Style="{StaticResource HintTextStyle}" />
+            <TextBlock x:Name="StepCounterTextBlock"
+                       Margin="0,6,0,0"
+                       FontSize="11"
+                       Foreground="{StaticResource TextMutedBrush}"
+                       Text="Step 1 of 3" />
+        </StackPanel>
+
+        <!-- ── Steps ───────────────────────────────────────────────────── -->
+        <Grid Grid.Row="1">
+
+            <!-- Step 1: source -->
+            <Grid x:Name="SourceStepPanel">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="Folder to copy from" FontWeight="SemiBold" />
+                <Grid Grid.Row="1" Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="SourcePathTextBox" />
+                    <Button Grid.Column="1" Content="Browse…" Click="BrowseSource_Click" Margin="8,0,0,0" />
+                </Grid>
+                <TextBlock Grid.Row="2"
+                           Margin="0,12,0,0"
+                           Style="{StaticResource HintTextStyle}"
+                           Text="Every selected file is copied into the destination once. If the folder carries create_copy_setup.txt, its rules and its template are used for that first copy." />
+                <TextBlock x:Name="SourceInfoTextBlock"
+                           Grid.Row="3"
+                           Margin="0,16,0,0"
+                           Style="{StaticResource HintTextStyle}" />
+            </Grid>
+
+            <!-- Step 2: destination -->
+            <Grid x:Name="DestinationStepPanel" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="Folder to copy into" FontWeight="SemiBold" />
+                <Grid Grid.Row="1" Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="DestinationPathTextBox" />
+                    <Button Grid.Column="1" Content="Browse…" Click="BrowseDestination_Click" Margin="8,0,0,0" />
+                </Grid>
+                <TextBlock Grid.Row="2"
+                           Margin="0,12,0,0"
+                           Style="{StaticResource HintTextStyle}"
+                           Text="Pick the folder that should hold the copy. It must already exist and must not sit inside the source folder. Files already there are replaced, and the old versions are kept in .backup_sync_recovery." />
+                <TextBlock x:Name="DestinationInfoTextBlock"
+                           Grid.Row="3"
+                           Margin="0,16,0,0"
+                           Style="{StaticResource HintTextStyle}" />
+            </Grid>
+
+            <!-- Step 3: setup file -->
+            <Grid x:Name="SetupStepPanel" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="150" />
+                </Grid.RowDefinitions>
+
+                <TextBlock x:Name="SetupInfoTextBlock"
+                           Grid.Row="0"
+                           Style="{StaticResource HintTextStyle}"
+                           TextWrapping="Wrap" />
+
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,8">
+                    <CheckBox x:Name="ApplySetupCheckBox"
+                              Content="Apply this setup file to the first copy"
+                              IsChecked="True"
+                              VerticalAlignment="Center"
+                              Checked="ApplySetup_Changed"
+                              Unchecked="ApplySetup_Changed" />
+                    <Button x:Name="StarterFileButton"
+                            Content="Write a starter file…"
+                            Click="StarterFile_Click"
+                            Style="{StaticResource SubtleButtonStyle}"
+                            Margin="16,0,0,0"
+                            Padding="10,3"
+                            FontSize="11.5"
+                            Visibility="Collapsed" />
+                </StackPanel>
+
+                <TextBox x:Name="SetupEditorTextBox"
+                         Grid.Row="2"
+                         Style="{StaticResource MonoTextBoxStyle}"
+                         AcceptsReturn="True"
+                         AcceptsTab="True"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         MinHeight="110"
+                         IsEnabled="False" />
+
+                <TextBlock Grid.Row="3"
+                           Margin="0,8,0,0"
+                           Style="{StaticResource HintTextStyle}"
+                           TextWrapping="Wrap"
+                           Text="+rule includes, -rule excludes, $rule links instead of copying (the destination points at the source file, so heavy emulator images stay in one place), # is a comment. No + rule means every file. A block between “# backup_setup.txt template” and “# end backup_setup.txt” becomes this pair's backup_setup.txt; {Destination} and {Source} are replaced there." />
+
+                <TextBlock x:Name="CopyLogLabelTextBlock"
+                           Grid.Row="4"
+                           Margin="0,12,0,6"
+                           FontSize="11.5"
+                           FontWeight="SemiBold"
+                           Visibility="Collapsed"
+                           Text="Copy progress" />
+
+                <TextBox x:Name="CopyLogTextBox"
+                         Grid.Row="5"
+                         Style="{StaticResource MonoTextBoxStyle}"
+                         IsReadOnly="True"
+                         AcceptsReturn="True"
+                         TextWrapping="NoWrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         Visibility="Collapsed" />
+            </Grid>
+        </Grid>
+
+        <!-- ── Footer ──────────────────────────────────────────────────── -->
+        <Grid Grid.Row="2" Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBlock x:Name="MessageTextBlock"
+                       Grid.Column="0"
+                       VerticalAlignment="Center"
+                       Margin="0,0,12,0"
+                       FontSize="12"
+                       TextWrapping="Wrap"
+                       Foreground="{StaticResource DangerBrush}" />
+
+            <Button x:Name="CancelButton" Grid.Column="1" Content="Cancel" Click="Cancel_Click" IsCancel="True" Margin="0,0,8,0" />
+            <Button x:Name="BackButton" Grid.Column="2" Content="Back" Click="Back_Click" IsEnabled="False" Margin="0,0,8,0" />
+            <Button x:Name="NextButton" Grid.Column="3" Content="Next" Click="Next_Click" Style="{StaticResource AccentButtonStyle}" IsDefault="True" />
+        </Grid>
+    </Grid>
+</Window>
