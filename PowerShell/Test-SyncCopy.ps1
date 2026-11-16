@@ -176,8 +176,10 @@ Assert ((IsLink (Join-Path $p.B 'roms/heavy.iso')) -or ($helperOutput -match 'Li
 Assert (-not (Exists $p.B 'saves/slot.sav')) 'The helper links only what a rule marks'
 $helperAgain=& $script:HostExe @helperArguments 2>&1 | Out-String
 Assert ($LASTEXITCODE -eq 0 -and $helperAgain -match 'already present') 'Running the helper again is safe'
+# An argument that carries no rule text, encoded so no shell can drop it from the argument list.
+$blankRules=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(' '))
 $helperRules=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'New-SyncLinks.ps1'),
-    '-Source',$p.A,'-Destination',$p.B,'-LinkRulesBase64',[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('')))
+    '-Source',$p.A,'-Destination',$p.B,'-LinkRulesBase64',$blankRules)
 $null=& $script:HostExe @helperRules 2>&1
 Assert ($LASTEXITCODE -ne 0) 'The helper refuses an empty rule set'
 
