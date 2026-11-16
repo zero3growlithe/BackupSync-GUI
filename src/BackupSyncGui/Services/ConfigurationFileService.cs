@@ -169,9 +169,9 @@ internal static class ConfigurationFileService
                 ruleLines.Add(line.TrimEnd());
                 continue;
             }
-            if (!Regex.IsMatch(trimmed, "^[+-].+"))
+            if (!Regex.IsMatch(trimmed, "^[+\\-$].+"))
             {
-                error = "Line " + (index + 1) + ": a selection rule must start with + or -, or be a # comment: " + trimmed;
+                error = "Line " + (index + 1) + ": a selection rule must start with +, - or $ (for a link), or be a # comment: " + trimmed;
                 return false;
             }
             string pattern = trimmed.Substring(1).Trim().Replace('\\', '/').TrimEnd('/');
@@ -211,6 +211,6 @@ internal static class ConfigurationFileService
 
     private static bool IsPositionalBoundary(string line)
     {
-        return Regex.IsMatch(line, "^\\s*[+-]");
+        return Regex.IsMatch(line, "^\\s*[+\\-$]");
     }
 }

@@ -30,7 +30,7 @@
         <TextBlock Grid.Row="1"
                    Margin="0,6,0,12"
                    Style="{StaticResource HintTextStyle}"
-                   Text="One rule per line. +Saves includes a folder or file name anywhere in the tree, -**/cache/** excludes cache contents, -*.zip excludes archives. Without any + rule every file is included. Rules containing a slash are anchored at the folder root; blank lines and # comments are ignored." />
+                   Text="One rule per line. +Saves includes a folder or file name anywhere in the tree, -**/cache/** excludes cache contents, $**/roms/** links a path into the other folder instead of copying it. Without any + rule every file is included. Rules containing a slash are anchored at the folder root; blank lines and # comments are ignored." />
 
         <views:FilterEditorControl x:Name="EditorControl" Grid.Row="2" />
 

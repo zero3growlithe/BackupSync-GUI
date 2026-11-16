@@ -194,7 +194,7 @@
                 <TextBlock Grid.Row="1"
                            Margin="0,6,0,10"
                            Style="{StaticResource HintTextStyle}"
-                           Text="+rule includes, -rule excludes. Without a + rule every file is included. Rules with a slash are anchored at the folder root. These rules are written to backup_setup.txt and can be edited later." />
+                           Text="+rule includes, -rule excludes, $rule links instead of syncing. Without a + rule every file is included. Rules with a slash are anchored at the folder root. These rules are written to backup_setup.txt and can be edited later." />
                 <views:FilterEditorControl x:Name="RulesEditorControl" Grid.Row="2" />
                 <CheckBox x:Name="OpenFolderCheckBox"
                           Grid.Row="3"
