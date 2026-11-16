@@ -62,35 +62,6 @@ function Test-TemplateEnd([string]$Line) {
     $Line -match '^\s*#\s*-*\s*end\s+(backup_setup|backup_sync)(\.txt)?\s*-*\s*$'
 }
 
-# ── What Windows can represent ───────────────────────────────────────────
-$script:ForbiddenNameCharacters = [char[]]@('<', '>', ':', '"', '|', '?', '*')
-
-# '' when the path works on Windows, otherwise the reason it does not. The destination path is longer
-# than the source path whenever the copy root sits deeper, so a path that works in the source can still
-# be too long once it is written to the destination.
-function Test-CopyablePath([string]$Relative, [string]$SourceRoot, [string]$DestinationRoot) {
-    $to = LocalPath $DestinationRoot $Relative
-    if ($to.Length -ge 260) {
-        return ("the destination path is {0} characters long, and Windows allows 259 without long-path support (the source path is {1})" -f $to.Length, (LocalPath $SourceRoot $Relative).Length)
-    }
-    foreach ($segment in $Relative.Split('/')) {
-        if ($segment.Length -eq 0) { continue }
-        foreach ($character in $script:ForbiddenNameCharacters) {
-            if ($segment.IndexOf($character) -ge 0) {
-                return ("the name '{0}' contains '{1}', which Windows does not allow in a file or folder name" -f $segment, $character)
-            }
-        }
-        foreach ($character in $segment.ToCharArray()) {
-            if ([int]$character -lt 32) { return ("the name '{0}' contains a control character" -f $segment) }
-        }
-        if ($segment.EndsWith('.')) { return ("the name '{0}' ends with a dot, which Windows drops" -f $segment) }
-        if ($segment.EndsWith(' ')) { return ("the name '{0}' ends with a space, which Windows drops" -f $segment) }
-        if ($segment.Length -gt 255) { return ("the name '{0}' is longer than the 255 characters Windows allows" -f $segment) }
-        if ($segment -match '^(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)') { return ("the name '{0}' is reserved by Windows" -f $segment) }
-    }
-    return ''
-}
-
 # Drops what the pre-flight refused, so -SkipInvalid can carry on with the rest.
 function Remove-Skipped([Collections.Generic.List[string]]$List, [hashtable]$Skip) {
     $kept = New-Object 'Collections.Generic.List[string]'

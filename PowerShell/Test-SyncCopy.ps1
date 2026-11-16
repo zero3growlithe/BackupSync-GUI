@@ -217,38 +217,57 @@ $recovery=@(Get-ChildItem -LiteralPath (Join-Path $p.B '.backup_sync_recovery') 
 Assert ($recovery.Count -eq 1 -and ([IO.File]::ReadAllText($recovery[0].FullName) -eq 'user-content')) 'Content that is not a duplicate is kept in the recovery folder'
 Assert (Exists $p.B 'roms/extra.iso') 'The rest of the source folder is visible through the link'
 
-# ── 16. A name Windows cannot write stops the copy before it starts ──────
-$p=Pair 'invalid-name'
-Put $p.A 'good.txt' 'good'
-Put $p.A 'notes:stream.txt' 'bad'
-$r=RunCopy $p
-Assert ($r.Code -ne 0) 'A name with a character Windows forbids stops the copy'
-Assert ($r.Output -match [regex]::Escape('notes:stream.txt')) 'The refusal names the path that cannot be written'
-Assert ($r.Output -match 'does not allow') 'The refusal says why the name cannot be used'
-Assert ($r.Output -match 'SkipInvalid') 'The refusal points at the way to carry on without it'
-Assert (-not (Exists $p.B 'good.txt')) 'Nothing was copied before the refusal'
+# ── 16. The name rules themselves ───────────────────────────────────────
+. (Join-Path $PSScriptRoot 'BackupSync.Common.ps1')
+$sourceRoot='/tmp/name-rules-source'
+$destinationRoot='/tmp/name-rules-destination'
+Assert ((Test-CopyablePath 'eden/saves/slot1.sav' $sourceRoot $destinationRoot) -eq '') 'An ordinary path is accepted'
+Assert ((Test-CopyablePath 'notes:stream.txt' $sourceRoot $destinationRoot) -match "contains ':'") 'A colon in a name is refused'
+Assert ((Test-CopyablePath 'cache/why?.bin' $sourceRoot $destinationRoot) -match "contains '\?'") 'A question mark in a name is refused'
+Assert ((Test-CopyablePath 'cache/star*.bin' $sourceRoot $destinationRoot) -match "contains '\*'") 'A star in a name is refused'
+Assert ((Test-CopyablePath 'cache/name.' $sourceRoot $destinationRoot) -match 'ends with a dot') 'A name ending with a dot is refused'
+Assert ((Test-CopyablePath 'cache/name ' $sourceRoot $destinationRoot) -match 'ends with a space') 'A name ending with a space is refused'
+Assert ((Test-CopyablePath 'CON' $sourceRoot $destinationRoot) -match 'reserved') 'A reserved device name is refused'
+Assert ((Test-CopyablePath ('x' * 256) $sourceRoot $destinationRoot) -match 'longer than the 255') 'A name longer than 255 characters is refused'
+$deep=('d' * 90) + '/' + ('d' * 90) + '/' + ('d' * 90) + '/file.txt'
+Assert ((Test-CopyablePath $deep $sourceRoot $destinationRoot) -match 'characters long') 'A destination path over 259 characters is refused and its length reported'
+Assert ((Test-CopyablePath $deep $sourceRoot $destinationRoot) -match 'long-path support') 'The refusal names the Windows limit'
 
-# ── 17. -SkipInvalid copies the rest and excludes the impossible path ────
-$p=Pair 'invalid-name-skip'
-Put $p.A 'good.txt' 'good'
-Put $p.A 'notes:stream.txt' 'bad'
-$r=RunCopy $p @('-SkipInvalid')
-Assert ($r.Code -eq 0) '-SkipInvalid copies what Windows can represent'
-Assert (Exists $p.B 'good.txt') 'The valid file arrives'
-Assert (-not (Exists $p.B 'notes:stream.txt')) 'The impossible name is left out'
-Assert ($r.Output -match 'Skipped 1 path') 'The run reports what it skipped'
-Assert ((ReadFile $p.A 'backup_setup.txt') -match [regex]::Escape('-notes:stream.txt')) 'The skipped path becomes an exclusion rule in the pair configuration'
-$s=RunSync $p.A
-Assert ($s.Code -eq 0) 'The pair syncs afterwards because the impossible path is excluded'
+# The fixtures below need names and paths that only a non-Windows file system can hold, so they run
+# where they can exist; the rules above already prove the verdicts on every platform.
+if ($env:OS -ne 'Windows_NT') {
+    # ── 17. A name Windows cannot write stops the copy before it starts ──
+    $p=Pair 'invalid-name'
+    Put $p.A 'good.txt' 'good'
+    Put $p.A 'notes:stream.txt' 'bad'
+    $r=RunCopy $p
+    Assert ($r.Code -ne 0) 'A name with a character Windows forbids stops the copy'
+    Assert ($r.Output -match [regex]::Escape('notes:stream.txt')) 'The refusal names the path that cannot be written'
+    Assert ($r.Output -match 'does not allow') 'The refusal says why the name cannot be used'
+    Assert ($r.Output -match 'SkipInvalid') 'The refusal points at the way to carry on without it'
+    Assert (-not (Exists $p.B 'good.txt')) 'Nothing was copied before the refusal'
 
-# ── 18. A destination path longer than Windows allows is refused ─────────
-$p=Pair 'long-path'
-$deep=(('d' * 90) + '/' + ('d' * 90) + '/' + ('d' * 90))
-Put $p.A ($deep + '/file.txt') 'deep'
-$r=RunCopy $p
-Assert ($r.Code -ne 0) 'A destination path over 259 characters stops the copy'
-Assert ($r.Output -match 'characters long') 'The refusal explains the path length'
-Assert ($r.Output -match 'long-path support') 'The refusal names the Windows limit that was hit'
+    # ── 18. -SkipInvalid copies the rest and excludes the impossible path ─
+    $p=Pair 'invalid-name-skip'
+    Put $p.A 'good.txt' 'good'
+    Put $p.A 'notes:stream.txt' 'bad'
+    $r=RunCopy $p @('-SkipInvalid')
+    Assert ($r.Code -eq 0) '-SkipInvalid copies what Windows can represent'
+    Assert (Exists $p.B 'good.txt') 'The valid file arrives'
+    Assert (-not (Exists $p.B 'notes:stream.txt')) 'The impossible name is left out'
+    Assert ($r.Output -match 'Skipped 1 path') 'The run reports what it skipped'
+    Assert ((ReadFile $p.A 'backup_setup.txt') -match [regex]::Escape('-notes:stream.txt')) 'The skipped path becomes an exclusion rule in the pair configuration'
+    $s=RunSync $p.A
+    Assert ($s.Code -eq 0) 'The pair syncs afterwards because the impossible path is excluded'
+
+    # ── 19. A destination path longer than Windows allows is refused ─────
+    $p=Pair 'long-path'
+    $deepFixture=(('d' * 90) + '/' + ('d' * 90) + '/' + ('d' * 90))
+    Put $p.A ($deepFixture + '/file.txt') 'deep'
+    $r=RunCopy $p
+    Assert ($r.Code -ne 0) 'A destination path over 259 characters stops the copy'
+    Assert ($r.Output -match 'characters long') 'The refusal explains the path length'
+}
 
 # ── 10. Guard rails ────────────────────────────────────────────────────
 $p=Pair 'nested'
