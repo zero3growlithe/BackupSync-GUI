@@ -73,7 +73,6 @@ $**/*.iso
 
 # backup_setup.txt template
 {Destination}
-
 Example.exe
 10
 +Saves
@@ -83,7 +82,8 @@ $**/roms/**
 
 - The rules decide what the first copy carries. No `+` rule means every file; exclusions still apply.
 - A rule that starts with `$` is a link rule. Those paths are not copied: the destination receives a symbolic link to the source file, or a hard link when symbolic links are refused, so a heavy image is stored once and both folders read the same bytes. Link rules are excluded from normal sync on both sides, so later runs never turn the link into a copy. A link only resolves while the source folder is reachable from the same computer, and it protects nothing against disk loss; keep them for emulator images you want to use directly from the copy folder.
-- The block between `# backup_setup.txt template` and `# end backup_setup.txt` becomes the pair's `backup_setup.txt`, with `{Destination}` and `{Source}` replaced. When its first effective line is not a rooted path, the destination, an empty executable slot and a 10 second delay are prepended. Without a template the setup rules above also become the pair's rules. A template whose first line does not resolve to the chosen destination is refused instead of silently syncing the wrong folder.
+- The block between `# backup_setup.txt template` and `# end backup_setup.txt` becomes the pair's `backup_setup.txt`, with `{Destination}` and `{Source}` replaced. It follows the same layout as any configuration: destination first, then the executable (leave the line empty for manual sync), then the delay, then the rules. A comment cannot sit between those settings; keep comments below them. Missing settings are filled in with an empty executable and a 10 second delay, and a template that cannot be read as a configuration is refused before anything is copied. When its first effective line is not a rooted path, the destination, an empty executable slot and a 10 second delay are prepended. Without a template the setup rules above also become the pair's rules. A template whose first line does not resolve to the chosen destination is refused instead of silently syncing the wrong folder.
+- A template decides the pair's rules, so a `$` rule that the template does not repeat is appended to the generated `backup_setup.txt`. Without it the next sync would meet its own links as unknown reparse points and stop; the script prints what it added.
 - The file itself is reserved: it is never copied and never synchronized, exactly like `backup_setup.txt`, `backup_init.txt` and `backup_version.txt`.
 - Files that already exist in the destination are replaced, and the replaced version is kept under `.backup_sync_recovery`, so running the script again is safe. If the source folder matches something that is already a link in the destination, that link wins and no bytes are copied.
 

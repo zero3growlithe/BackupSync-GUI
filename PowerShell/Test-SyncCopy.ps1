@@ -82,13 +82,13 @@ Assert ((Get-FileHash -LiteralPath $linkPath -Algorithm SHA256).Hash -eq (Get-Fi
 
 # ── 4. A template is rendered into the pair configuration ────────────────
 $p=Pair 'template'
-Put $p.A 'create_copy_setup.txt' ("# backup_setup.txt template`n{Destination}`n`nSteam.exe`n25`n+Saves`n# end backup_setup.txt")
+Put $p.A 'create_copy_setup.txt' ("# backup_setup.txt template`n{Destination}`nSteam.exe`n25`n+Saves`n# end backup_setup.txt")
 Put $p.A 'Saves/keep.dat' 'keep'
 $r=RunCopy $p
 Assert ($r.Code -eq 0) 'Copy with a template succeeds'
 $lines=@(Get-Content -LiteralPath (Join-Path $p.A 'backup_setup.txt'))
 Assert ($lines[0] -eq $p.B) 'The template destination token is replaced'
-Assert ($lines[2] -eq 'Steam.exe' -and $lines[3] -eq '25' -and $lines[4] -eq '+Saves') 'The template executable, delay and rules are kept'
+Assert ($lines[1] -eq 'Steam.exe' -and $lines[2] -eq '25' -and $lines[3] -eq '+Saves') 'The template executable, delay and rules are kept'
 
 # ── 5. A template without a destination line gets one ────────────────────
 $p=Pair 'template-nolines'
@@ -136,6 +136,31 @@ Assert ((ReadFile $p.B 'saves/slot.sav') -eq 'slot') 'Ordinary files stay in syn
 $r=RunCopy $p
 Assert ($r.Code -eq 0) 'Re-running the copy on an existing copy succeeds'
 Assert ((IsLink $linkPath) -or ($r.Output -match 'Linked \(Hard\)')) 'The link is recreated, not duplicated'
+
+# ── 11. A template that forgets a link rule still keeps the link usable ──
+$p=Pair 'template-link'
+Put $p.A 'create_copy_setup.txt' ('$roms/**' + "`n" + '# backup_setup.txt template' + "`n" + '{Destination}' + "`n`n10`n+Saves`n" + '# end backup_setup.txt')
+Put $p.A 'roms/heavy.iso' 'heavy-bytes'; Put $p.A 'Saves/slot.dat' 'slot'
+$r=RunCopy $p
+$linkPath=Join-Path $p.B 'roms/heavy.iso'
+Assert ($r.Code -eq 0) 'A template plus a link rule copies successfully'
+Assert (Exists $p.B 'roms/heavy.iso') 'The link rule still applies when a template is present'
+$state=@(Get-Content -LiteralPath (Join-Path $p.A 'backup_setup.txt'))
+Assert ($state -contains '$roms/**') 'The link rule the template omitted is added to the configuration'
+Assert ($state -contains '+Saves') 'The template rules are kept as written'
+$s=RunSync $p.A
+Assert ($s.Code -eq 0) 'The first sync accepts the configuration written from a template'
+Assert ((IsLink $linkPath) -or ($s.Output -match 'Linked \(Hard\)') -or (Exists $p.B 'roms/heavy.iso')) 'The link survives that sync'
+
+# ── 12. A template that cannot be read is refused before anything is copied ─
+$p=Pair 'template-broken'
+Put $p.A 'create_copy_setup.txt' ("# backup_setup.txt template`n{Destination}`n`n`n10`n+Saves`n# end backup_setup.txt")
+Put $p.A 'Saves/slot.dat' 'slot'
+$r=RunCopy $p
+Assert ($r.Code -ne 0) 'A template with an extra settings line stops the script'
+Assert ($r.Output -match 'extra settings line') 'The refusal names the problem'
+Assert (-not (Exists $p.B 'Saves/slot.dat')) 'Nothing is copied when the template is unusable'
+Assert (-not (Test-Path -LiteralPath (Join-Path $p.A 'backup_setup.txt'))) 'No configuration is written either'
 
 # ── 10. Guard rails ────────────────────────────────────────────────────
 $p=Pair 'nested'

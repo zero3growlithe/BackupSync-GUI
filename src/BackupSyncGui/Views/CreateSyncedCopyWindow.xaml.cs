@@ -513,12 +513,12 @@ public partial class CreateSyncedCopyWindow : Window
             "# Links only work while the source folder is reachable from this computer.",
             "#",
             "# Everything between the two markers below becomes the pair's backup_setup.txt.",
+            "# Its layout is: destination, executable (empty for manual sync), delay, then rules.",
             "# {Destination} is replaced with the folder you picked, {Source} with this folder.",
             "#",
             "# backup_setup.txt template",
             "# {Destination}",
-            "#",
-            "# <executable to launch, or leave the line empty>",
+            "# ",
             "# 10",
             "# end backup_setup.txt",
         };
@@ -545,7 +545,8 @@ public partial class CreateSyncedCopyWindow : Window
                       "the source file, so it only works while the source folder stays reachable from this computer.");
         }
         parts.Add(plan.HasTemplate
-            ? "The template becomes this pair's backup_setup.txt."
+            ? "The template becomes this pair's backup_setup.txt. Link rules it does not repeat are added to it, " +
+              "so the links keep working."
             : "Without a template the rules above also become this pair's backup_setup.txt.");
         return string.Join(" ", parts);
     }

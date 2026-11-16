@@ -89,8 +89,28 @@ function Test-DestinationLine([string]$Line) {
     [IO.Path]::IsPathRooted($value) -or $value.StartsWith('\\')
 }
 
-# Writes <source>\backup_setup.txt, then reads it back the way the engine does to prove it is usable.
-function Write-PairConfiguration([string]$SourcePath, [string]$DestinationPath, [string[]]$RuleLines, [string[]]$Template) {
+# A template decides the pair's rules, but a link that was just created must stay a link: any '$' rule
+# the template forgets is appended, because a configuration without it would trip over its own links.
+function Add-MissingLinkRules($Lines, [string[]]$RuleLines, [switch]$Report) {
+    if ($null -eq $RuleLines -or $RuleLines.Count -eq 0) { return }
+    $present = New-Object 'Collections.Generic.List[string]'
+    foreach ($line in $Lines) {
+        $trimmed = $line.Trim()
+        if ($trimmed.StartsWith('#') -or $trimmed.Length -lt 2) { continue }
+        $present.Add($trimmed.Substring(1).Trim().Replace('\', '/').TrimEnd('/'))
+    }
+    foreach ($line in $RuleLines) {
+        $trimmed = $line.Trim()
+        if ($trimmed.Length -lt 2 -or $trimmed[0] -ne '$') { continue }
+        $pattern = $trimmed.Substring(1).Trim().Replace('\', '/').TrimEnd('/')
+        if ($present -contains $pattern) { continue }
+        $Lines.Add('$' + $pattern)
+        if ($Report) { Write-Host "Added the link rule '$pattern' to the configuration so the created links keep working." }
+    }
+}
+
+# The lines BackupSync.ps1 will read: destination, optional executable, optional delay, then rules.
+function Build-ConfigurationLines([string]$SourcePath, [string]$DestinationPath, [string[]]$RuleLines, [string[]]$Template, [switch]$Report) {
     $lines = New-Object 'Collections.Generic.List[string]'
     if ($null -ne $Template) {
         $rendered = Expand-Template $Template $SourcePath $DestinationPath
@@ -107,26 +127,74 @@ function Write-PairConfiguration([string]$SourcePath, [string]$DestinationPath, 
             $lines.Add($DestinationPath); $lines.Add(''); $lines.Add('10')
             foreach ($line in $rendered) { $lines.Add($line) }
         }
+        Add-MissingLinkRules $lines $RuleLines -Report:$Report
     } else {
         $lines.Add($DestinationPath); $lines.Add(''); $lines.Add('10')
         foreach ($line in $RuleLines) { $lines.Add($line) }
     }
     while ($lines.Count -gt 0 -and [string]::IsNullOrWhiteSpace($lines[$lines.Count - 1])) { $lines.RemoveAt($lines.Count - 1) }
-    $lines.Add('# Script: ' + (Join-Path $PSScriptRoot 'BackupSync.ps1'))
+    # Both settings slots always exist, so the trailing "# Script:" comment can never be read as one.
+    $slots = 0
+    $scan = 1
+    while ($scan -lt $lines.Count -and $lines[$scan] -notmatch '^\s*[+\-$]') { $slots++; $scan++ }
+    if ($slots -lt 2) {
+        $insertAt = 1 + $slots
+        $padding = $(if ($slots -eq 0) { @('', '10') } else { @('10') })
+        foreach ($line in $padding) { $lines.Insert($insertAt, $line); $insertAt++ }
+    }
+    ,$lines.ToArray()
+}
 
-    $path = Join-Path $SourcePath 'backup_setup.txt'
-    $text = ($lines -join "`r`n") + "`r`n"
-    [IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding($true)))
+# The same positional read BackupSync.ps1 performs, so a bad template is rejected before any file moves.
+function Test-ConfigurationShape([string[]]$Lines) {
+    if ($Lines.Count -eq 0 -or [string]::IsNullOrWhiteSpace($Lines[0])) { return 'It has no destination line.' }
+    $index = 1
+    $slots = 0
+    while ($index -lt $Lines.Count -and $Lines[$index] -notmatch '^\s*[+\-$]') {
+        if ($Lines[$index].Trim().StartsWith('#')) {
+            # Once both settings are there, a comment simply starts the rules section.
+            if ($slots -ge 2) { break }
+            return "Line $($index + 1) is a comment where the configuration needs the executable or the delay. Comments belong below the settings."
+        }
+        $slots++
+        if ($slots -gt 2) {
+            return "Line $($index + 1) is an extra settings line. A configuration holds the destination, an optional executable, an optional delay, and then only rules."
+        }
+        if ($slots -eq 2) {
+            $candidate = $Lines[$index].Trim()
+            if ($candidate -ne '' -and $candidate -notmatch '^\d+$') {
+                return "Line $($index + 1) has to be the delay in whole seconds, but reads '$candidate'."
+            }
+        }
+        $index++
+    }
+    for ($i = $index; $i -lt $Lines.Count; $i++) {
+        $trimmed = $Lines[$i].Trim()
+        if ($trimmed -eq '' -or $trimmed.StartsWith('#')) { continue }
+        if ($trimmed -notmatch '^[+\-$].+') { return "Line $($i + 1) is not a rule: '$trimmed'." }
+    }
+    return $null
+}
 
-    # Same positional parse as BackupSync.ps1, so a template that cannot work fails here and not later.
-    $written = @(Get-Content -LiteralPath $path -Encoding UTF8)
+# Writes <source>\backup_setup.txt from the lines Build-ConfigurationLines produced.
+function Write-PairConfiguration([string]$SourcePath, [string]$DestinationPath, [string]$Path, [string[]]$Lines) {
+    $all = New-Object 'Collections.Generic.List[string]'
+    foreach ($line in $Lines) { $all.Add($line) }
+    $all.Add('# Script: ' + (Join-Path $PSScriptRoot 'BackupSync.ps1'))
+
+    $text = ($all -join "`r`n") + "`r`n"
+    [IO.File]::WriteAllText($Path, $text, (New-Object Text.UTF8Encoding($true)))
+
+    $written = @(Get-Content -LiteralPath $Path -Encoding UTF8)
     if ($written.Count -eq 0 -or [string]::IsNullOrWhiteSpace($written[0])) { throw 'The configuration was written without a destination line.' }
     $check = [Environment]::ExpandEnvironmentVariables($written[0].Trim().Trim('"'))
     if (-not [IO.Path]::IsPathRooted($check)) { $check = Join-Path $SourcePath $check }
     if ((FullPath $check) -ne $DestinationPath) {
-        throw "The template did not produce the destination on line 1 (found '$($written[0])')."
+        throw "The configuration does not point at the destination on line 1 (found '$($written[0])')."
     }
-    $path
+    $problem = Test-ConfigurationShape $written
+    if ($problem) { throw "The configuration written from the template cannot be read by the sync engine. $problem" }
+    $Path
 }
 
 try {
@@ -165,6 +233,12 @@ try {
 
     SetSelectionRules $ruleLines
     Write-Host ("Rules: {0} include, {1} exclude, {2} link." -f $script:Includes.Count, $script:Excludes.Count, $script:LinkRules.Count)
+
+    # A template that cannot become a configuration is refused now, not after copying gigabytes.
+    $configurationPath = Join-Path $Source 'backup_setup.txt'
+    $plannedLines = Build-ConfigurationLines $Source $Destination $ruleLines $template
+    $plannedProblem = Test-ConfigurationShape $plannedLines
+    if ($plannedProblem) { throw "The setup file's backup_setup.txt template cannot be used. $plannedProblem" }
 
     foreach ($root in @($Source, $Destination) | Sort-Object) {
         $locks.Add([IO.File]::Open((Join-Path $root '.backup_sync.lock'), [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None))
@@ -231,7 +305,8 @@ try {
     foreach ($rel in $dirs) { $null = New-Item -ItemType Directory -Path (LocalPath $Destination $rel) -Force }
 
     if ($readSetup) { AssertCurrent $SetupFile $setupHash }
-    $configurationPath = Write-PairConfiguration $Source $Destination $ruleLines $template
+    $finalLines = Build-ConfigurationLines $Source $Destination $ruleLines $template -Report
+    $configurationPath = Write-PairConfiguration $Source $Destination $configurationPath $finalLines
 
     Write-Host ''
     Write-Host ("Synced copy complete: {0} file(s) copied, {1} link(s) created, {2} folder(s) created." -f $files.Count, $linked, $dirs.Count)
