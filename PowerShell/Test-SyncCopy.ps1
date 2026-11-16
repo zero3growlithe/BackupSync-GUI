@@ -162,6 +162,25 @@ Assert ($r.Output -match 'extra settings line') 'The refusal names the problem'
 Assert (-not (Exists $p.B 'Saves/slot.dat')) 'Nothing is copied when the template is unusable'
 Assert (-not (Test-Path -LiteralPath (Join-Path $p.A 'backup_setup.txt'))) 'No configuration is written either'
 
+# ── 13. The helper that runs with administrator rights links on its own ───
+$p=Pair 'helper'
+Put $p.A 'roms/heavy.iso' 'heavy-bytes'; Put $p.A 'saves/slot.sav' 'slot'
+$null=New-Item -ItemType Directory -Path (Join-Path $p.B 'roms') -Force
+$encoded=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('roms/**'))
+$helperArguments=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'New-SyncLinks.ps1'),
+    '-Source',$p.A,'-Destination',$p.B,'-LinkRulesBase64',$encoded)
+$helperOutput=& $script:HostExe @helperArguments 2>&1 | Out-String
+Assert ($LASTEXITCODE -eq 0) 'The link helper finishes successfully'
+Assert (Exists $p.B 'roms/heavy.iso') 'The helper creates the link'
+Assert ((IsLink (Join-Path $p.B 'roms/heavy.iso')) -or ($helperOutput -match 'Linked \(Hard\)')) 'The helper creates a link, not a copy'
+Assert (-not (Exists $p.B 'saves/slot.sav')) 'The helper links only what a rule marks'
+$helperAgain=& $script:HostExe @helperArguments 2>&1 | Out-String
+Assert ($LASTEXITCODE -eq 0 -and $helperAgain -match 'already present') 'Running the helper again is safe'
+$helperRules=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $PSScriptRoot 'New-SyncLinks.ps1'),
+    '-Source',$p.A,'-Destination',$p.B,'-LinkRulesBase64',[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes('')))
+$null=& $script:HostExe @helperRules 2>&1
+Assert ($LASTEXITCODE -ne 0) 'The helper refuses an empty rule set'
+
 # ── 10. Guard rails ────────────────────────────────────────────────────
 $p=Pair 'nested'
 $nested=Join-Path $p.A 'inner'

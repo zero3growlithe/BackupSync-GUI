@@ -387,8 +387,8 @@ public partial class MainWindow : Window
             MessageBox.Show(
                 this,
                 "That folder does not contain " + ScriptLocator.EngineFileName + ", " +
-                ScriptLocator.CommonFileName + ", " + ScriptLocator.StartScriptFileName + " and " +
-                ScriptLocator.CopyScriptFileName + ".",
+                ScriptLocator.CommonFileName + ", " + ScriptLocator.StartScriptFileName + ", " +
+                ScriptLocator.CopyScriptFileName + " and " + ScriptLocator.LinkScriptFileName + ".",
                 "BackupSync",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);

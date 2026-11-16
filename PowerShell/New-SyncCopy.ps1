@@ -197,6 +197,33 @@ function Write-PairConfiguration([string]$SourcePath, [string]$DestinationPath, 
     $Path
 }
 
+# Windows only lets administrators create file symbolic links unless Developer Mode is on, and a hard
+# link needs both paths on one volume. The remaining set goes to a single elevated helper, so the user
+# answers one permission prompt instead of one per file.
+function New-LinkElevated([string]$SourcePath, [string]$DestinationPath, [string[]]$Patterns) {
+    $helper = Join-Path $PSScriptRoot 'New-SyncLinks.ps1'
+    if (-not (Test-Path -LiteralPath $helper)) {
+        throw "Administrator rights are needed to create the links, but $helper is missing from the scripts folder."
+    }
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($Patterns -join "`n")))
+    $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    if (-not (Test-Path -LiteralPath $shell)) { $shell = 'powershell.exe' }
+    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"' + $helper + '"'),
+        '-Source', ('"' + $SourcePath + '"'), '-Destination', ('"' + $DestinationPath + '"'), '-LinkRulesBase64', $encoded)
+    Write-Host 'A Windows permission prompt is opening now: creating symbolic links needs administrator rights.'
+    try {
+        $process = Start-Process -FilePath $shell -ArgumentList $arguments -Verb RunAs -PassThru -Wait -ErrorAction Stop
+    } catch {
+        throw ('Creating symbolic links needs administrator rights, and Windows did not grant them (' +
+            $_.Exception.Message + '). Turn on Developer Mode, or run this copy as administrator.')
+    }
+    if ($null -eq $process) { throw 'The permission prompt did not start the link helper.' }
+    if ($process.ExitCode -ne 0) {
+        throw ("The elevated link helper stopped with exit code $($process.ExitCode). Turn on Developer Mode, " +
+            'or run this copy as administrator.')
+    }
+}
+
 try {
     $Source = FullPath (Resolve-Path -LiteralPath $Source).ProviderPath
     $Destination = FullPath (Resolve-Path -LiteralPath $Destination).ProviderPath
@@ -283,6 +310,7 @@ try {
         CopyChecked $Source $Destination $rel $hash $toHash
     }
     $linked = 0
+    $pending = New-Object 'Collections.Generic.List[string]'
     foreach ($rel in $links) {
         $target = LocalPath $Source $rel
         $linkPath = LocalPath $Destination $rel
@@ -292,15 +320,37 @@ try {
                 # a previous copy put real bytes there: keep them in recovery before replacing them
                 Recover $Destination $rel (Get-FileHash -LiteralPath $linkPath -Algorithm SHA256).Hash
             }
-            Remove-Item -LiteralPath $linkPath -Force
+            Remove-Item -LiteralPath $linkPath -Force -ErrorAction SilentlyContinue
         }
-        $kind = NewLink $target $linkPath
+        try {
+            $kind = NewLink $target $linkPath
+        } catch {
+            # Both a symbolic and a hard link were refused: this path needs administrator rights.
+            $pending.Add($rel)
+            continue
+        }
         $targetHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
         if ((Get-FileHash -LiteralPath $linkPath -Algorithm SHA256).Hash -ne $targetHash) {
             throw "Link verification failed: $rel"
         }
         $linked++
         Write-Host "Linked ($kind) $rel -> $Source"
+    }
+    if ($pending.Count -gt 0) {
+        Write-Host ("Windows refused {0} link(s) for lack of rights." -f $pending.Count)
+        New-LinkElevated $Source $Destination @($script:LinkRules)
+        foreach ($rel in $pending) {
+            $linkPath = LocalPath $Destination $rel
+            $target = LocalPath $Source $rel
+            if (-not (Test-Path -LiteralPath $linkPath)) {
+                throw "The link for '$rel' was not created even with administrator rights."
+            }
+            if ((Get-FileHash -LiteralPath $linkPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash) {
+                throw "Link verification failed after elevation: $rel"
+            }
+            $linked++
+            Write-Host "Linked $rel -> $Source"
+        }
     }
     foreach ($rel in $dirs) { $null = New-Item -ItemType Directory -Path (LocalPath $Destination $rel) -Force }
 

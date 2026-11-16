@@ -561,7 +561,8 @@ public partial class CreateSyncedCopyWindow : Window
         if (plan.LinkRuleCount > 0)
         {
             parts.Add(plan.LinkRuleCount + " link rule(s): those paths are not copied. The destination points at " +
-                      "the source file, so it only works while the source folder stays reachable from this computer.");
+                      "the source file, so it only works while the source folder stays reachable from this computer. " +
+                      "Windows asks for administrator rights when the links are created unless Developer Mode is on.");
         }
         parts.Add(plan.HasTemplate
             ? "The template becomes this pair's backup_setup.txt. Link rules it does not repeat are added to it, " +

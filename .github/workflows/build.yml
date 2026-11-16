@@ -80,7 +80,8 @@ jobs:
             'publish\PowerShell\Start-BackupSync.ps1',
             'publish\PowerShell\Setup-BackupSync.ps1',
             'publish\PowerShell\Initialize-BackupSync.ps1',
-            'publish\PowerShell\New-SyncCopy.ps1'
+            'publish\PowerShell\New-SyncCopy.ps1',
+            'publish\PowerShell\New-SyncLinks.ps1'
           )
           foreach ($file in $required) {
             if (-not (Test-Path -LiteralPath $file)) { throw "Missing published file: $file" }
