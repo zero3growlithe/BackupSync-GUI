@@ -309,8 +309,27 @@ public partial class CreateSyncedCopyWindow : Window
         }
         if (!Directory.Exists(candidate))
         {
-            ShowMessage("That folder does not exist. Create it first, then choose it:\n" + candidate);
-            return false;
+            MessageBoxResult create = MessageBox.Show(
+                this,
+                "That folder does not exist yet:\n\n" + candidate + "\n\nCreate it now?",
+                "Create destination folder",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes);
+            if (create != MessageBoxResult.Yes)
+            {
+                return false;
+            }
+            try
+            {
+                Directory.CreateDirectory(candidate);
+            }
+            catch (Exception exception)
+            {
+                CrashLog.Write(exception);
+                ShowMessage("The folder could not be created: " + exception.Message);
+                return false;
+            }
         }
         string destination = ConfigurationFileService.NormalizePath(candidate);
         if (IsDriveRoot(destination))
