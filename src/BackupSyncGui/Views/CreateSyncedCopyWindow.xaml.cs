@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,7 +18,7 @@ namespace BackupSyncGui.Views;
 /// </summary>
 public partial class CreateSyncedCopyWindow : Window
 {
-    private const int StepCount = 3;
+    private const int StepCount = 4;
 
     private const string VersionFileName = "backup_version.txt";
 
@@ -25,6 +27,7 @@ public partial class CreateSyncedCopyWindow : Window
         "Source folder",
         "Destination folder",
         "Setup file for the first copy",
+        "Application and delay",
     };
 
     private static readonly string[] StepSubtitles =
@@ -32,13 +35,20 @@ public partial class CreateSyncedCopyWindow : Window
         "Pick the folder you want to copy. Its files stay the reference side of the pair.",
         "Pick the folder that should receive the copy. One destination serves one logical set of files.",
         "create_copy_setup.txt decides what the first copy carries and how the pair is configured afterwards.",
+        "Choose what the launcher starts in the copied folder, and how long it waits before syncing again.",
     };
 
     private string _sourcePath = string.Empty;
 
     private string _destinationPath = string.Empty;
 
+    private readonly ObservableCollection<ExecutableOption> _executableOptions = new ObservableCollection<ExecutableOption>();
+
     private bool _setupFileExists;
+
+    private bool _copyCompleted;
+
+    private bool _destinationOpened;
 
     private bool _running;
 
@@ -51,6 +61,7 @@ public partial class CreateSyncedCopyWindow : Window
     public CreateSyncedCopyWindow()
     {
         InitializeComponent();
+        ExecutableListBox.ItemsSource = _executableOptions;
         GoToStep(0);
     }
 
@@ -69,12 +80,24 @@ public partial class CreateSyncedCopyWindow : Window
         SourceStepPanel.Visibility = step == 0 ? Visibility.Visible : Visibility.Collapsed;
         DestinationStepPanel.Visibility = step == 1 ? Visibility.Visible : Visibility.Collapsed;
         SetupStepPanel.Visibility = step == 2 ? Visibility.Visible : Visibility.Collapsed;
+        ApplicationStepPanel.Visibility = step == 3 ? Visibility.Visible : Visibility.Collapsed;
 
         StepTitleTextBlock.Text = StepTitles[step];
         StepSubtitleTextBlock.Text = StepSubtitles[step];
         StepCounterTextBlock.Text = "Step " + (step + 1) + " of " + StepCount;
-        BackButton.IsEnabled = step > 0;
-        NextButton.Content = step == StepCount - 1 ? "Create synced copy" : "Next";
+        BackButton.IsEnabled = step > 0 && !_copyCompleted;
+        if (step == StepCount - 1)
+        {
+            NextButton.Content = "Finish";
+        }
+        else if (step == StepCount - 2)
+        {
+            NextButton.Content = "Create synced copy";
+        }
+        else
+        {
+            NextButton.Content = "Next";
+        }
         ClearMessage();
 
         if (step == 0)
@@ -86,6 +109,34 @@ public partial class CreateSyncedCopyWindow : Window
         {
             SetupEditorTextBox.Focus();
         }
+        if (step == StepCount - 1)
+        {
+            PrepareApplicationStep();
+        }
+    }
+
+    /// <summary>Step 4 keeps whatever the copy already wrote, and offers the executables it brought along.</summary>
+    private void PrepareApplicationStep()
+    {
+        _copyCompleted = true;
+        try
+        {
+            BackupConfiguration configuration = ConfigurationFileService.Read(_sourcePath);
+            DelayTextBox.Text = configuration.DelaySeconds.ToString(CultureInfo.InvariantCulture);
+        }
+        catch (Exception exception)
+        {
+            CrashLog.Write(exception);
+            if (string.IsNullOrWhiteSpace(DelayTextBox.Text))
+            {
+                DelayTextBox.Text = "10";
+            }
+        }
+        if (_executableOptions.Count == 0)
+        {
+            LoadExecutablesAsync();
+        }
+        OpenDestinationCheckBox.IsChecked = true;
     }
 
     private async void Next_Click(object sender, RoutedEventArgs e)
@@ -114,8 +165,12 @@ public partial class CreateSyncedCopyWindow : Window
                     }
                     return;
 
-                default:
+                case 2:
                     await AttemptCreateAsync().ConfigureAwait(true);
+                    return;
+
+                default:
+                    FinishApplication();
                     return;
             }
         }
@@ -128,7 +183,7 @@ public partial class CreateSyncedCopyWindow : Window
 
     private void Back_Click(object sender, RoutedEventArgs e)
     {
-        if (_running || _step == 0)
+        if (_running || _copyCompleted || _step == 0)
         {
             return;
         }
@@ -149,6 +204,18 @@ public partial class CreateSyncedCopyWindow : Window
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
         _cancellation?.Cancel();
+        // The copy already wrote the configuration: keep the pair rather than leaving it half registered.
+        if (_copyCompleted && !ConfigurationCreated)
+        {
+            try
+            {
+                CompleteRegistration(ConfigurationFileService.Read(_sourcePath), openDestination: false);
+            }
+            catch (Exception exception)
+            {
+                CrashLog.Write(exception);
+            }
+        }
         base.OnClosing(e);
     }
 
@@ -440,7 +507,9 @@ public partial class CreateSyncedCopyWindow : Window
                 return;
             }
 
-            RegisterPair();
+            GoToStep(StepCount - 1);
+            OpenDestinationIfWanted();
+            ShowMessage("The copy is finished. One more decision: what the launcher should start.", isError: false);
         }
         catch (Exception exception)
         {
@@ -456,10 +525,151 @@ public partial class CreateSyncedCopyWindow : Window
         }
     }
 
-    /// <summary>Reads the configuration the copy just wrote, adds shortcuts and puts the pair in the list.</summary>
-    private void RegisterPair()
+    // ── Step 4: what the launcher starts ───────────────────────────────────
+
+    private void RefreshExecutables_Click(object sender, RoutedEventArgs e)
     {
-        BackupConfiguration configuration = ConfigurationFileService.Read(_sourcePath);
+        _executableOptions.Clear();
+        LoadExecutablesAsync();
+    }
+
+    private async void LoadExecutablesAsync()
+    {
+        try
+        {
+            ExecutableStatusTextBlock.Text = "Looking for executables in the copied folder…";
+            _executableOptions.Clear();
+            ExecutableOption manual = new ExecutableOption { Display = "No application (manual sync only)" };
+            _executableOptions.Add(manual);
+            ExecutableListBox.SelectedIndex = 0;
+
+            string source = _sourcePath;
+            string destination = _destinationPath;
+            IReadOnlyList<string> inDestination = await Task.Run(() => ExecutableDiscovery.Find(destination)).ConfigureAwait(true);
+            IReadOnlyList<string> inSource = await Task.Run(() => ExecutableDiscovery.Find(source)).ConfigureAwait(true);
+
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int added = 0;
+            foreach (string path in inDestination)
+            {
+                if (!seen.Add(ConfigurationFileService.NormalizePath(path)))
+                {
+                    continue;
+                }
+                _executableOptions.Add(new ExecutableOption
+                {
+                    Display = ExecutableDiscovery.ToConfigurationValue(source, path),
+                    FullPath = path,
+                    Icon = ShellInterop.LoadShellIcon(path),
+                });
+                added++;
+            }
+            foreach (string path in inSource)
+            {
+                if (!seen.Add(ConfigurationFileService.NormalizePath(path)))
+                {
+                    continue;
+                }
+                _executableOptions.Add(new ExecutableOption
+                {
+                    Display = ExecutableDiscovery.ToConfigurationValue(source, path),
+                    FullPath = path,
+                    Icon = ShellInterop.LoadShellIcon(path),
+                });
+                added++;
+            }
+
+            ExecutableListBox.SelectedIndex = 0;
+            ExecutableStatusTextBlock.Text = added == 0
+                ? "No .exe files were found in the copy. Keep manual sync, or browse for an executable yourself."
+                : added + " executable(s) found in the copy. Choose the one the launcher should start, or keep manual sync.";
+        }
+        catch (Exception exception)
+        {
+            CrashLog.Write(exception);
+            ExecutableStatusTextBlock.Text = "The executable search failed: " + exception.Message;
+        }
+    }
+
+    private void BrowseExecutable_Click(object sender, RoutedEventArgs e)
+    {
+        string? selected = ShellInterop.BrowseForExecutable(
+            "Select the application executable",
+            string.IsNullOrWhiteSpace(_destinationPath) ? null : _destinationPath);
+        if (selected is null)
+        {
+            return;
+        }
+        if (!string.Equals(Path.GetExtension(selected), ".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            ShowMessage("Choose a file with the .exe extension.");
+            return;
+        }
+
+        ExecutableOption option = new ExecutableOption
+        {
+            Display = ExecutableDiscovery.ToConfigurationValue(_sourcePath, selected),
+            FullPath = selected,
+            Icon = ShellInterop.LoadShellIcon(selected),
+        };
+        _executableOptions.Add(option);
+        ExecutableListBox.SelectedItem = option;
+        ClearMessage();
+    }
+
+    /// <summary>Writes the executable and delay into the pair's configuration, then finishes the flow.</summary>
+    private void FinishApplication()
+    {
+        if (_running)
+        {
+            return;
+        }
+
+        ExecutableOption? selected = ExecutableListBox.SelectedItem as ExecutableOption;
+        if (selected is null && _executableOptions.Count > 0)
+        {
+            selected = _executableOptions[0];
+            ExecutableListBox.SelectedIndex = 0;
+        }
+        string executablePath = selected?.FullPath ?? string.Empty;
+        string executableLine = string.IsNullOrWhiteSpace(executablePath)
+            ? string.Empty
+            : ExecutableDiscovery.ToConfigurationValue(_sourcePath, executablePath);
+
+        string delayText = (DelayTextBox.Text ?? string.Empty).Trim();
+        int delay = 10;
+        if (delayText.Length > 0)
+        {
+            if (!int.TryParse(delayText, NumberStyles.Integer, CultureInfo.InvariantCulture, out delay) || delay < 0)
+            {
+                ShowMessage("The delay must be a nonnegative whole number of seconds.");
+                return;
+            }
+        }
+
+        try
+        {
+            BackupConfiguration configuration = ConfigurationFileService.Read(_sourcePath);
+            configuration.ExecutableLine = executableLine;
+            configuration.ResolvedExecutablePath = string.IsNullOrWhiteSpace(executablePath)
+                ? string.Empty
+                : ConfigurationFileService.NormalizePath(executablePath);
+            configuration.DelaySeconds = delay;
+
+            string engineScript = ScriptLocator.GetScriptPath(App.Instance.PowerShellFolder, ScriptLocator.EngineFileName);
+            ConfigurationFileService.Write(_sourcePath, configuration, engineScript);
+            CompleteRegistration(configuration, OpenDestinationCheckBox.IsChecked == true);
+        }
+        catch (Exception exception)
+        {
+            CrashLog.Write(exception);
+            ShowMessage("The configuration could not be saved: " + exception.Message);
+        }
+    }
+
+    /// <summary>Shortcuts, list entry and the final wording. The configuration file is already written.</summary>
+    private void CompleteRegistration(BackupConfiguration configuration, bool openDestination)
+    {
         try
         {
             ShortcutService.CreateShortcuts(
@@ -486,15 +696,41 @@ public partial class CreateSyncedCopyWindow : Window
         StepSubtitleTextBlock.Text = "The destination is populated and the pair is registered.";
         StepCounterTextBlock.Text = "Finished";
         ShowMessage(
-            "Done. “Sync now” in the list keeps this pair up to date from now on.",
+            "Done. The pair launches " + configuration.ExecutableDisplayName + " with a " +
+            configuration.DelaySeconds + " second delay; “Sync now” in the list keeps it up to date.",
             isError: false);
         AppendLog("Registered the pair in " + ConfigurationFileService.GetPath(_sourcePath));
+
+        if (openDestination)
+        {
+            OpenDestinationIfWanted();
+        }
+    }
+
+    /// <summary>Explorer opens in the folder the copy just filled, at most once per run.</summary>
+    private void OpenDestinationIfWanted()
+    {
+        if (_destinationOpened || OpenDestinationCheckBox.IsChecked != true || string.IsNullOrWhiteSpace(_destinationPath))
+        {
+            return;
+        }
+        try
+        {
+            ShellInterop.OpenFolder(_destinationPath);
+            _destinationOpened = true;
+            AppendLog("Opened " + _destinationPath);
+        }
+        catch (Exception exception)
+        {
+            CrashLog.Write(exception);
+            AppendLog("The destination folder could not be opened: " + exception.Message);
+        }
     }
 
     private void SetBusyState(bool busy)
     {
         NextButton.IsEnabled = !busy;
-        BackButton.IsEnabled = !busy && !_finished && _step > 0;
+        BackButton.IsEnabled = !busy && !_finished && !_copyCompleted && _step > 0;
         CancelButton.Content = busy ? "Stop" : "Cancel";
         ApplySetupCheckBox.IsEnabled = !busy;
         UpdateSetupEditorState();

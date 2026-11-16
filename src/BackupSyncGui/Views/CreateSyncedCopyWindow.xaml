@@ -92,6 +92,65 @@
                            Style="{StaticResource HintTextStyle}" />
             </Grid>
 
+            <!-- Step 4: application and delay -->
+            <Grid x:Name="ApplicationStepPanel" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="Application to launch between the two syncs" FontWeight="SemiBold" />
+                <TextBlock x:Name="ExecutableStatusTextBlock"
+                           Grid.Row="1"
+                           Margin="0,6,0,10"
+                           Style="{StaticResource HintTextStyle}"
+                           TextWrapping="Wrap" />
+
+                <Border Grid.Row="2"
+                        Background="{StaticResource SurfaceBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="7">
+                    <ListBox x:Name="ExecutableListBox" Style="{StaticResource ItemListBoxStyle}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Image Source="{Binding Icon}" Width="20" Height="20" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Display}"
+                                               Margin="10,0,0,0"
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+
+                <StackPanel Grid.Row="3" Margin="0,12,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Browse for another executable…" Click="BrowseExecutable_Click" />
+                        <Button Content="Search again" Click="RefreshExecutables_Click" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                        <TextBlock Text="Delay before the second sync (seconds)" VerticalAlignment="Center" />
+                        <TextBox x:Name="DelayTextBox" Width="70" Margin="10,0,0,0" Text="10" />
+                    </StackPanel>
+                    <TextBlock Margin="0,8,0,0"
+                               Style="{StaticResource HintTextStyle}"
+                               TextWrapping="Wrap"
+                               Text="The launcher starts this application, waits for it to close, waits the delay, then synchronizes. Pick “No application” for manual sync only." />
+                </StackPanel>
+
+                <CheckBox x:Name="OpenDestinationCheckBox"
+                          Grid.Row="4"
+                          Margin="0,12,0,0"
+                          Content="Open the destination folder when finished"
+                          IsChecked="True" />
+            </Grid>
+
             <!-- Step 3: setup file -->
             <Grid x:Name="SetupStepPanel" Visibility="Collapsed">
                 <Grid.RowDefinitions>

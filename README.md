@@ -33,8 +33,10 @@ the GUI only configures, monitors and starts them.
   a template for the pair's `backup_setup.txt`. Unticking the box copies everything
   instead. Windows asks for administrator rights when the symbolic links are created (unless
   Developer Mode is on), and the copy waits for that answer. The copy streams its progress into the
-  window, then the configuration, the shortcuts and the list entry are created, so **Sync now** keeps
-  the pair current from then on.
+  window and Explorer opens in the freshly filled destination. A last step then asks which executable
+  the launcher should start between the two syncs and how long to wait after it closes; both are
+  written into the pair's configuration. Finishing creates the configuration, the shortcuts and the
+  list entry, so **Sync now** keeps the pair current from then on.
 * **Existing configuration detected** — when the chosen source folder already contains
   `backup_setup.txt`, the wizard offers to either add that configuration to the list
   without touching it, or to configure it again and overwrite it (the old file is kept as
