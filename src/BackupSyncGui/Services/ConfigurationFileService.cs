@@ -185,9 +185,9 @@ internal static class ConfigurationFileService
                 error = "Line " + (index + 1) + ": rules must be relative paths, not absolute.";
                 return false;
             }
-            if (pattern.Contains(':'))
+            if (pattern.Length >= 2 && char.IsLetter(pattern[0]) && pattern[1] == ':')
             {
-                error = "Line " + (index + 1) + ": rules cannot contain a drive or stream separator.";
+                error = "Line " + (index + 1) + ": rules cannot start with a drive letter.";
                 return false;
             }
             string[] segments = pattern.Split('/');

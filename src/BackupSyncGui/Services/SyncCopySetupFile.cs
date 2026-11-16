@@ -179,9 +179,9 @@ internal static class SyncCopySetupFile
                 error = "Line " + lineNumber + ": rules must be relative paths, not absolute.";
                 return false;
             }
-            if (pattern.Contains(':'))
+            if (pattern.Length >= 2 && char.IsLetter(pattern[0]) && pattern[1] == ':')
             {
-                error = "Line " + lineNumber + ": rules cannot contain a drive or stream separator.";
+                error = "Line " + lineNumber + ": rules cannot start with a drive letter.";
                 return false;
             }
             foreach (string segment in pattern.Split('/'))

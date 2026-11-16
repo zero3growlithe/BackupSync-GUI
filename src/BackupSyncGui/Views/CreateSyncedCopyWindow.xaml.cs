@@ -456,10 +456,10 @@ public partial class CreateSyncedCopyWindow : Window
             return;
         }
 
-        await RunCopyAsync(copyEverything, setupText).ConfigureAwait(true);
+        await RunCopyAsync(copyEverything, setupText, skipInvalid: false).ConfigureAwait(true);
     }
 
-    private async Task RunCopyAsync(bool copyEverything, string setupText)
+    private async Task RunCopyAsync(bool copyEverything, string setupText, bool skipInvalid)
     {
         _running = true;
         _cancellation = new CancellationTokenSource();
@@ -491,8 +491,29 @@ public partial class CreateSyncedCopyWindow : Window
                 _sourcePath,
                 _destinationPath,
                 copyEverything,
+                skipInvalid,
                 progress,
                 _cancellation.Token).ConfigureAwait(true);
+
+            // A name Windows cannot write stops the copy before anything moves: offer to carry on without it.
+            if (!result.Succeeded && !skipInvalid && result.Output.Contains("of the selected path(s) under"))
+            {
+                MessageBoxResult answer = MessageBox.Show(
+                    this,
+                    "Windows cannot create some of the paths in the destination.\n\n" +
+                    TrimOutput(result.Output) +
+                    "\n\nCopy everything else, and exclude those paths from the pair?",
+                    "Create synced copy",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question,
+                    MessageBoxResult.Yes);
+                if (answer == MessageBoxResult.Yes)
+                {
+                    AppendLog("Copying everything except the paths Windows cannot write…");
+                    await RunCopyAsync(copyEverything, setupText, skipInvalid: true).ConfigureAwait(true);
+                    return;
+                }
+            }
 
             if (!result.Succeeded)
             {

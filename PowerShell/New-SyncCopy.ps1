@@ -34,13 +34,18 @@
 
 .PARAMETER SetupFile
     A different setup file to read instead of <source>\create_copy_setup.txt.
+
+.PARAMETER SkipInvalid
+    Copy everything Windows can represent and skip the paths it cannot, reporting them.
+    Without this switch such a path stops the copy before anything is written.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Source,
     [Parameter(Mandatory = $true)][string]$Destination,
     [string]$SetupFile,
-    [switch]$CopyAll
+    [switch]$CopyAll,
+    [switch]$SkipInvalid
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -48,12 +53,49 @@ $ErrorActionPreference = 'Stop'
 
 $locks = New-Object 'Collections.Generic.List[IDisposable]'
 $script:RunId = (Get-Date -Format 'yyyyMMdd-HHmmss') + '-copy-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+$script:Step = ''
 
 function Test-TemplateStart([string]$Line) {
     $Line -match '^\s*#\s*-*\s*(backup_setup|backup_sync)(\.txt)?\s*(template)?\s*-*\s*$'
 }
 function Test-TemplateEnd([string]$Line) {
     $Line -match '^\s*#\s*-*\s*end\s+(backup_setup|backup_sync)(\.txt)?\s*-*\s*$'
+}
+
+# ── What Windows can represent ───────────────────────────────────────────
+$script:ForbiddenNameCharacters = [char[]]@('<', '>', ':', '"', '|', '?', '*')
+
+# '' when the path works on Windows, otherwise the reason it does not. The destination path is longer
+# than the source path whenever the copy root sits deeper, so a path that works in the source can still
+# be too long once it is written to the destination.
+function Test-CopyablePath([string]$Relative, [string]$SourceRoot, [string]$DestinationRoot) {
+    $to = LocalPath $DestinationRoot $Relative
+    if ($to.Length -ge 260) {
+        return ("the destination path is {0} characters long, and Windows allows 259 without long-path support (the source path is {1})" -f $to.Length, (LocalPath $SourceRoot $Relative).Length)
+    }
+    foreach ($segment in $Relative.Split('/')) {
+        if ($segment.Length -eq 0) { continue }
+        foreach ($character in $script:ForbiddenNameCharacters) {
+            if ($segment.IndexOf($character) -ge 0) {
+                return ("the name '{0}' contains '{1}', which Windows does not allow in a file or folder name" -f $segment, $character)
+            }
+        }
+        foreach ($character in $segment.ToCharArray()) {
+            if ([int]$character -lt 32) { return ("the name '{0}' contains a control character" -f $segment) }
+        }
+        if ($segment.EndsWith('.')) { return ("the name '{0}' ends with a dot, which Windows drops" -f $segment) }
+        if ($segment.EndsWith(' ')) { return ("the name '{0}' ends with a space, which Windows drops" -f $segment) }
+        if ($segment.Length -gt 255) { return ("the name '{0}' is longer than the 255 characters Windows allows" -f $segment) }
+        if ($segment -match '^(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)') { return ("the name '{0}' is reserved by Windows" -f $segment) }
+    }
+    return ''
+}
+
+# Drops what the pre-flight refused, so -SkipInvalid can carry on with the rest.
+function Remove-Skipped([Collections.Generic.List[string]]$List, [hashtable]$Skip) {
+    $kept = New-Object 'Collections.Generic.List[string]'
+    foreach ($rel in $List) { if (-not $Skip.ContainsKey($rel)) { $kept.Add($rel) } }
+    , $kept
 }
 
 # Splits the setup file into rule lines (everything outside the template block) and the template body.
@@ -308,8 +350,46 @@ try {
         }
     }
 
+
+    # ── Refuse what Windows cannot write before a single byte moves ───────
+    $skippedCount = 0
+    $skippedList = New-Object 'Collections.Generic.List[string]'
+    $invalid = New-Object 'Collections.Generic.List[object]'
+    foreach ($rel in (@($files) + @($links) + @($folderLinks) + @($dirs))) {
+        $reason = Test-CopyablePath $rel $Source $Destination
+        if ($reason) { $invalid.Add([pscustomobject]@{ Relative = $rel; Reason = $reason }) }
+    }
+    if ($invalid.Count -gt 0) {
+        $skip = @{}
+        Write-Host ''
+        Write-Host ("Windows cannot create {0} of the selected path(s) under '{1}':" -f $invalid.Count, $Destination) -ForegroundColor Yellow
+        foreach ($entry in $invalid) {
+            Write-Host ("  {0}" -f $entry.Relative)
+            Write-Host ("    {0}" -f $entry.Reason)
+            $skip[$entry.Relative] = $true
+            $skippedList.Add($entry.Relative)
+        }
+        if (-not $SkipInvalid) {
+            throw ("Windows cannot copy the {0} path(s) listed above. Exclude them with '-' rules, or run again with -SkipInvalid to copy everything else." -f $invalid.Count)
+        }
+        Write-Host 'Skipping those paths; everything else is copied.' -ForegroundColor Yellow
+        # The pair has to keep ignoring them too, otherwise the very first sync stops on the same path.
+        $combined = New-Object 'Collections.Generic.List[string]'
+        foreach ($line in @($ruleLines)) { if ($line) { $combined.Add($line) } }
+        foreach ($rel in $skippedList) { $combined.Add('-' + $rel) }
+        $ruleLines = $combined
+        Write-Host 'The skipped paths were added to the pair configuration as exclusion rules.' -ForegroundColor Yellow
+        $files = Remove-Skipped $files $skip
+        $links = Remove-Skipped $links $skip
+        $folderLinks = Remove-Skipped $folderLinks $skip
+        $dirs = Remove-Skipped $dirs $skip
+        $skippedCount = $skippedList.Count
+    }
+
     # ── Copy the selected files, then create the links ────────────────────
     foreach ($rel in $files) {
+        $to = LocalPath $Destination $rel
+        $script:Step = "copying '$rel' -> '$to' ($($to.Length) characters)"
         $from = LocalPath $Source $rel
         $hash = (Get-FileHash -LiteralPath $from -Algorithm SHA256).Hash
         $toHash = $null
@@ -327,6 +407,7 @@ try {
     $linked = 0
     $pending = New-Object 'Collections.Generic.List[string]'
     foreach ($rel in $links) {
+        $script:Step = "linking the file '$rel'"
         $target = LocalPath $Source $rel
         $linkPath = LocalPath $Destination $rel
         $existing = Get-Item -LiteralPath $linkPath -Force -ErrorAction SilentlyContinue
@@ -354,6 +435,7 @@ try {
     $folderLinked = 0
     $pendingFolders = New-Object 'Collections.Generic.List[string]'
     foreach ($rel in $folderLinks) {
+        $script:Step = "linking the folder '$rel'"
         $target = LocalPath $Source $rel
         $linkPath = LocalPath $Destination $rel
         ClearForLink $Source $Destination $rel
@@ -388,7 +470,10 @@ try {
             Write-Host "Linked folder $rel -> $(LocalPath $Source $rel)"
         }
     }
-    foreach ($rel in $dirs) { $null = New-Item -ItemType Directory -Path (LocalPath $Destination $rel) -Force }
+    foreach ($rel in $dirs) {
+        $script:Step = "creating the folder '$rel'"
+        $null = New-Item -ItemType Directory -Path (LocalPath $Destination $rel) -Force
+    }
 
     if ($readSetup) { AssertCurrent $SetupFile $setupHash }
     $finalLines = Build-ConfigurationLines $Source $Destination $ruleLines $template -Report
@@ -398,9 +483,11 @@ try {
     Write-Host ("Synced copy complete: {0} file(s) copied, {1} file link(s), {2} folder link(s), {3} folder(s) created." -f
         $files.Count, $linked, $folderLinked, $dirs.Count)
     Write-Host "Configuration: $configurationPath"
+    if ($skippedCount -gt 0) { Write-Host ("Skipped {0} path(s) Windows cannot copy: {1}" -f $skippedCount, ($skippedList -join ', ')) -ForegroundColor Yellow }
     Write-Host 'No version baseline was written; the first sync establishes it.'
     exit 0
 } catch {
     Write-Host "Create synced copy stopped: $($_.Exception.Message)" -ForegroundColor Red
+    if ($script:Step) { Write-Host "  The copy stopped while $($script:Step)." -ForegroundColor Red }
     exit 1
 } finally { foreach ($handle in $locks) { $handle.Dispose() } }

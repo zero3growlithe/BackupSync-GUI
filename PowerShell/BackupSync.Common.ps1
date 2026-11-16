@@ -160,7 +160,7 @@ function CopyChecked([string]$FromRoot,[string]$ToRoot,[string]$Relative,[string
             AssertCurrent $to $ToHash
             [IO.File]::Replace($temp,$to,[System.Management.Automation.Language.NullString]::Value)
         } else { [IO.File]::Move($temp,$to) }
-        Write-Host "Copied $Relative -> $ToRoot"
+        Write-Host "Copied $Relative -> $to"
     } finally { if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force } }
 }
 # Resolved target of a symbolic link/junction, or $null for an ordinary file.
@@ -258,8 +258,8 @@ function SetSelectionRules([string[]]$Lines,[int]$Start=0) {
         if ($line -eq '' -or $line.StartsWith('#')) { continue }
         if ($line -notmatch '^[+\-$].+') { throw "Invalid selection rule: $line" }
         $pattern=$line.Substring(1).Trim().Replace('\','/').TrimEnd('/')
-        if ([string]::IsNullOrWhiteSpace($pattern) -or $pattern.StartsWith('/') -or $pattern.Contains(':') -or ($pattern -split '/') -contains '..') {
-            throw "Rules must be relative paths without '..': $line"
+        if ([string]::IsNullOrWhiteSpace($pattern) -or $pattern.StartsWith('/') -or $pattern -match '^[A-Za-z]:' -or ($pattern -split '/') -contains '..') {
+            throw "Rules must be relative paths without a drive letter or '..': $line"
         }
         if ($line[0] -eq '+') { $script:Includes+=$pattern }
         elseif ($line[0] -eq '-') { $script:Excludes+=$pattern }

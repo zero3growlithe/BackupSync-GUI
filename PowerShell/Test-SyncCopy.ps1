@@ -217,6 +217,39 @@ $recovery=@(Get-ChildItem -LiteralPath (Join-Path $p.B '.backup_sync_recovery') 
 Assert ($recovery.Count -eq 1 -and ([IO.File]::ReadAllText($recovery[0].FullName) -eq 'user-content')) 'Content that is not a duplicate is kept in the recovery folder'
 Assert (Exists $p.B 'roms/extra.iso') 'The rest of the source folder is visible through the link'
 
+# ── 16. A name Windows cannot write stops the copy before it starts ──────
+$p=Pair 'invalid-name'
+Put $p.A 'good.txt' 'good'
+Put $p.A 'notes:stream.txt' 'bad'
+$r=RunCopy $p
+Assert ($r.Code -ne 0) 'A name with a character Windows forbids stops the copy'
+Assert ($r.Output -match [regex]::Escape('notes:stream.txt')) 'The refusal names the path that cannot be written'
+Assert ($r.Output -match 'does not allow') 'The refusal says why the name cannot be used'
+Assert ($r.Output -match 'SkipInvalid') 'The refusal points at the way to carry on without it'
+Assert (-not (Exists $p.B 'good.txt')) 'Nothing was copied before the refusal'
+
+# ── 17. -SkipInvalid copies the rest and excludes the impossible path ────
+$p=Pair 'invalid-name-skip'
+Put $p.A 'good.txt' 'good'
+Put $p.A 'notes:stream.txt' 'bad'
+$r=RunCopy $p @('-SkipInvalid')
+Assert ($r.Code -eq 0) '-SkipInvalid copies what Windows can represent'
+Assert (Exists $p.B 'good.txt') 'The valid file arrives'
+Assert (-not (Exists $p.B 'notes:stream.txt')) 'The impossible name is left out'
+Assert ($r.Output -match 'Skipped 1 path') 'The run reports what it skipped'
+Assert ((ReadFile $p.A 'backup_setup.txt') -match [regex]::Escape('-notes:stream.txt')) 'The skipped path becomes an exclusion rule in the pair configuration'
+$s=RunSync $p.A
+Assert ($s.Code -eq 0) 'The pair syncs afterwards because the impossible path is excluded'
+
+# ── 18. A destination path longer than Windows allows is refused ─────────
+$p=Pair 'long-path'
+$deep=(('d' * 90) + '/' + ('d' * 90) + '/' + ('d' * 90))
+Put $p.A ($deep + '/file.txt') 'deep'
+$r=RunCopy $p
+Assert ($r.Code -ne 0) 'A destination path over 259 characters stops the copy'
+Assert ($r.Output -match 'characters long') 'The refusal explains the path length'
+Assert ($r.Output -match 'long-path support') 'The refusal names the Windows limit that was hit'
+
 # ── 10. Guard rails ────────────────────────────────────────────────────
 $p=Pair 'nested'
 $nested=Join-Path $p.A 'inner'

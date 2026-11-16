@@ -37,6 +37,10 @@ the GUI only configures, monitors and starts them.
   the launcher should start between the two syncs and how long to wait after it closes; both are
   written into the pair's configuration. Finishing creates the configuration, the shortcuts and the
   list entry, so **Sync now** keeps the pair current from then on.
+
+  Paths Windows cannot represent (too long for the destination, an illegal character in a name, a
+  reserved device name) stop the copy before a single file moves; the window then offers to copy
+  everything else and exclude those paths from the pair.
 * **Existing configuration detected** — when the chosen source folder already contains
   `backup_setup.txt`, the wizard offers to either add that configuration to the list
   without touching it, or to configure it again and overwrite it (the old file is kept as

@@ -103,6 +103,7 @@ internal static class BackupSyncProcessRunner
         string sourceFolder,
         string destinationFolder,
         bool copyEverything,
+        bool skipInvalid,
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
@@ -113,6 +114,10 @@ internal static class BackupSyncProcessRunner
         if (copyEverything)
         {
             arguments += " -CopyAll";
+        }
+        if (skipInvalid)
+        {
+            arguments += " -SkipInvalid";
         }
 
         ProcessStartInfo startInfo = new ProcessStartInfo
