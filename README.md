@@ -28,8 +28,9 @@ the GUI only configures, monitors and starts them.
   the same three shortcuts, so the result is interchangeable with the script.
 * **Create synced copy** copies a folder into a new destination once and then registers the pair.
   It asks for the source and the destination folder, shows the source's `create_copy_setup.txt` in
-  an editable box and asks whether to apply it — rules, `$` link rules for heavy files that stay in
-  one place, and a template for the pair's `backup_setup.txt`. Unticking the box copies everything
+  an editable box and asks whether to apply it — rules, `$` link rules for heavy data that stays in
+  one place (a rule naming a folder links that folder once; a rule naming files links the files), and
+  a template for the pair's `backup_setup.txt`. Unticking the box copies everything
   instead. Windows asks for administrator rights when the symbolic links are created (unless
   Developer Mode is on), and the copy waits for that answer. The copy streams its progress into the
   window, then the configuration, the shortcuts and the list entry are created, so **Sync now** keeps

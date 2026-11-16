@@ -69,7 +69,8 @@ Assert ((ReadFile $p.A 'backup_setup.txt') -match '\+Saves') 'Without a template
 
 # ── 3. '$' rules link instead of copy ────────────────────────────────────
 $p=Pair 'links'
-Put $p.A 'create_copy_setup.txt' ("+*`n" + '$**/roms/**' + "`n-*.tmp")
+# This rule names files, so each matching file gets its own link; a rule naming a folder is check 14.
+Put $p.A 'create_copy_setup.txt' ("+*`n" + '$**/roms/**/*.iso' + "`n-*.tmp")
 Put $p.A 'roms/ps2/heavy.iso' 'heavy-bytes'
 Put $p.A 'saves/slot1.sav' 'slot'
 $r=RunCopy $p
@@ -182,6 +183,39 @@ $helperRules=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $PSSc
     '-Source',$p.A,'-Destination',$p.B,'-LinkRulesBase64',$blankRules)
 $null=& $script:HostExe @helperRules 2>&1
 Assert ($LASTEXITCODE -ne 0) 'The helper refuses an empty rule set'
+
+# ── 14. A link rule on a folder links that folder once ───────────────────
+$p=Pair 'folder-link'
+Put $p.A 'create_copy_setup.txt' ('$roms' + "`n" + '+saves')
+Put $p.A 'roms/ps2/heavy.iso' 'heavy-bytes'; Put $p.A 'roms/ps2/second.iso' 'second-bytes'
+Put $p.A 'saves/slot.sav' 'slot'
+$r=RunCopy $p
+$folderPath=Join-Path $p.B 'roms'
+Assert ($r.Code -eq 0) 'A folder link rule copies the rest and links the folder'
+Assert (Test-Path -LiteralPath $folderPath -PathType Container) 'The linked folder appears in the destination'
+Assert ((IsLink $folderPath) -or ($r.Output -match 'Linked folder \(Junction\)')) 'The destination folder is a single link'
+Assert (-not (Exists $p.B 'roms/ps2/heavy.iso') -or (IsLink $folderPath) -or ($r.Output -match 'Junction')) 'No per-file link is created inside it'
+Assert ((Get-FileHash -LiteralPath (Join-Path $folderPath 'ps2/heavy.iso') -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath (Join-Path $p.A 'roms/ps2/heavy.iso') -Algorithm SHA256).Hash) 'The contents are readable through the folder link'
+Assert (Exists $p.B 'saves/slot.sav') 'Files outside the linked folder are still copied'
+$s=RunSync $p.A
+Assert ($s.Code -eq 0) 'The first sync accepts a linked folder'
+$stateText=[IO.File]::ReadAllText((Join-Path $p.A 'backup_version.txt'))
+Assert ($stateText -notmatch 'roms') 'The linked folder and its contents stay out of the baseline'
+Assert ((IsLink $folderPath) -or (Test-Path -LiteralPath $folderPath)) 'The folder link survives the sync'
+
+# ── 15. A real folder where a link belongs: duplicates go, other files stay ──
+$p=Pair 'folder-link-existing'
+Put $p.A 'create_copy_setup.txt' ('$roms')
+Put $p.A 'roms/heavy.iso' 'heavy'; Put $p.A 'roms/extra.iso' 'source-extra'
+Put $p.B 'roms/heavy.iso' 'heavy'
+Put $p.B 'roms/mine.txt' 'user-content'
+$r=RunCopy $p
+Assert ($r.Code -eq 0) 'Replacing a real folder with a link succeeds'
+Assert ((IsLink (Join-Path $p.B 'roms')) -or ($r.Output -match 'Linked folder \(Junction\)')) 'The folder becomes a link'
+Assert ($r.Output -match 'duplicate file\(s\) removed') 'The run reports what it removed'
+$recovery=@(Get-ChildItem -LiteralPath (Join-Path $p.B '.backup_sync_recovery') -Recurse -Filter mine.txt -ErrorAction SilentlyContinue)
+Assert ($recovery.Count -eq 1 -and ([IO.File]::ReadAllText($recovery[0].FullName) -eq 'user-content')) 'Content that is not a duplicate is kept in the recovery folder'
+Assert (Exists $p.B 'roms/extra.iso') 'The rest of the source folder is visible through the link'
 
 # ── 10. Guard rails ────────────────────────────────────────────────────
 $p=Pair 'nested'

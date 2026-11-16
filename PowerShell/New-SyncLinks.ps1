@@ -55,7 +55,25 @@ try {
             if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -and -not (IsLinked $relative)) {
                 throw "Link/junction encountered: $($item.FullName). Move it outside this folder."
             }
-            if ($item.PSIsContainer) { $stack.Push($item.FullName); continue }
+            if ($item.PSIsContainer) {
+                # A rule that names the folder itself gets one link for the whole tree, exactly like the copy.
+                if (-not (IsLinked $relative)) { $stack.Push($item.FullName); continue }
+                $folderPath=LocalPath $Destination $relative
+                $folderItem=Get-Item -LiteralPath $folderPath -Force -ErrorAction SilentlyContinue
+                if ($null -ne $folderItem -and ($folderItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    $skipped++
+                    continue
+                }
+                ClearForLink $Source $Destination $relative
+                $kind=NewLink (LocalPath $Source $relative) $folderPath -Container
+                $entries=@(Get-ChildItem -LiteralPath $folderPath -Force -ErrorAction Stop).Count
+                if ($entries -ne @(Get-ChildItem -LiteralPath (LocalPath $Source $relative) -Force -ErrorAction Stop).Count) {
+                    throw "Folder link verification failed: $relative"
+                }
+                $created++
+                Write-Host "Linked folder ($kind) $relative"
+                continue
+            }
             if (-not (IsLinked $relative)) { continue }
 
             $target = LocalPath $Source $relative

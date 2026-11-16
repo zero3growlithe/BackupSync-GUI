@@ -140,7 +140,7 @@
                            Margin="0,8,0,0"
                            Style="{StaticResource HintTextStyle}"
                            TextWrapping="Wrap"
-                           Text="+rule includes, -rule excludes, $rule links instead of copying (the destination points at the source file, so heavy emulator images stay in one place), # is a comment. No + rule means every file. A block between “# backup_setup.txt template” and “# end backup_setup.txt” becomes this pair's backup_setup.txt; {Destination} and {Source} are replaced there." />
+                           Text="+rule includes, -rule excludes, $rule links instead of copying: a rule that names a folder links that whole folder once (a junction needs no administrator rights), a rule that names a file links just that file. Heavy emulator images stay in one place either way. # is a comment. No + rule means every file. A block between “# backup_setup.txt template” and “# end backup_setup.txt” becomes this pair's backup_setup.txt; {Destination} and {Source} are replaced there." />
 
                 <TextBlock x:Name="CopyLogLabelTextBlock"
                            Grid.Row="4"

@@ -65,6 +65,9 @@ function Snapshot([string]$Root,[hashtable]$Cache=$null) {
                 throw "Link/junction encountered: $($item.FullName). Move it outside this sync tree."
             }
             if ($item.PSIsContainer) {
+                # A '$' rule on the folder itself means the destination holds one link for the whole tree,
+                # so its contents are neither compared nor walked.
+                if (IsLinked $rel) { continue }
                 $stack.Push($item.FullName)
                 if (Selected $rel) { $dirs[$rel]=$true }
             } elseif (Selected $rel) {
@@ -171,8 +174,9 @@ function LinkTargetOf([string]$Path) {
     if ($null -ne $legacy -and $legacy.Value) { return [string]($legacy.Value | Select-Object -First 1) }
     return $null
 }
-# Symbolic link first (works across volumes), hard link as the fallback (needs one volume, needs no rights).
-function NewLink([string]$Target,[string]$LinkPath) {
+# Symbolic link first (works across volumes), then a fallback that needs no rights: a hard link for a
+# file, a junction for a folder. A junction keeps a whole folder in one place without elevation.
+function NewLink([string]$Target,[string]$LinkPath,[switch]$Container) {
     $parent=Split-Path -Parent $LinkPath
     if ($parent) { $null=New-Item -ItemType Directory -Path $parent -Force }
     $symbolicError=''
@@ -180,12 +184,59 @@ function NewLink([string]$Target,[string]$LinkPath) {
         $null=New-Item -ItemType SymbolicLink -Path $LinkPath -Target $Target -ErrorAction Stop
         return 'Symbolic'
     } catch { $symbolicError=$_.Exception.Message }
+    if ($Container) {
+        try {
+            $null=New-Item -ItemType Junction -Path $LinkPath -Target $Target -ErrorAction Stop
+            return 'Junction'
+        } catch {
+            throw ("Could not link the folder '$LinkPath' to '$Target'. A folder symbolic link needs administrator " +
+                "rights or Developer Mode; a junction needs a local volume. Symbolic: $symbolicError Junction: $($_.Exception.Message)")
+        }
+    }
     try {
         $null=New-Item -ItemType HardLink -Path $LinkPath -Target $Target -ErrorAction Stop
         return 'Hard'
     } catch {
         throw ("Could not link '$LinkPath' to '$Target'. A file symbolic link needs administrator rights or Developer Mode; " +
             "a hard link needs both paths on the same volume. Symbolic: $symbolicError Hard: $($_.Exception.Message)")
+    }
+}
+# Removes whatever sits where a link belongs. Duplicate bytes are dropped so the space comes back;
+# anything the source does not carry identically is kept in the recovery folder first.
+function ClearForLink([string]$SourceRoot,[string]$DestinationRoot,[string]$Relative) {
+    $linkPath=LocalPath $DestinationRoot $Relative
+    $existing=Get-Item -LiteralPath $linkPath -Force -ErrorAction SilentlyContinue
+    if ($null -eq $existing) { return }
+    if (($existing.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        # Remove the link itself: Remove-Item -Recurse on a folder link would follow it and empty the target.
+        if ($existing.PSIsContainer) { [IO.Directory]::Delete($linkPath,$false) } else { [IO.File]::Delete($linkPath) }
+        return
+    }
+    if (-not $existing.PSIsContainer) {
+        Recover $DestinationRoot $Relative (Get-FileHash -LiteralPath $linkPath -Algorithm SHA256).Hash
+        Remove-Item -LiteralPath $linkPath -Force
+        return
+    }
+    $removed=0; $kept=0
+    $items=@(Get-ChildItem -LiteralPath $linkPath -Recurse -Force -ErrorAction Stop)
+    foreach ($item in $items) {
+        if ($item.PSIsContainer) { continue }
+        $sub=$item.FullName.Substring($DestinationRoot.Length+1).Replace('\','/')
+        $sourceCopy=LocalPath $SourceRoot $sub
+        $hash=(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
+        if ((Test-Path -LiteralPath $sourceCopy -PathType Leaf) -and
+            (Get-FileHash -LiteralPath $sourceCopy -Algorithm SHA256).Hash -eq $hash) {
+            Remove-Item -LiteralPath $item.FullName -Force
+            $removed++
+            continue
+        }
+        Recover $DestinationRoot $sub $hash
+        Remove-Item -LiteralPath $item.FullName -Force
+        $kept++
+    }
+    Remove-Item -LiteralPath $linkPath -Recurse -Force
+    if ($removed -gt 0 -or $kept -gt 0) {
+        Write-Host ("Replaced the real folder '{0}': {1} duplicate file(s) removed, {2} other file(s) kept in .backup_sync_recovery." -f $Relative,$removed,$kept)
     }
 }
 function WriteState([string]$Root,[string]$Json) {

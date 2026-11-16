@@ -197,6 +197,18 @@ function Write-PairConfiguration([string]$SourcePath, [string]$DestinationPath, 
     $Path
 }
 
+# A folder link has to be one link, not a real folder, and it has to show what the source shows.
+function AssertFolderLink([string]$Target,[string]$LinkPath) {
+    $item=Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+    if ($null -eq $item) { throw "The folder link '$LinkPath' is missing." }
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+        throw "The folder link '$LinkPath' was replaced by a real folder."
+    }
+    $expected=@(Get-ChildItem -LiteralPath $Target -Force -ErrorAction Stop).Count
+    $actual=@(Get-ChildItem -LiteralPath $LinkPath -Force -ErrorAction Stop).Count
+    if ($expected -ne $actual) { throw "The folder link '$LinkPath' shows $actual entries where '$Target' has $expected." }
+}
+
 # Windows only lets administrators create file symbolic links unless Developer Mode is on, and a hard
 # link needs both paths on one volume. The remaining set goes to a single elevated helper, so the user
 # answers one permission prompt instead of one per file.
@@ -274,6 +286,7 @@ try {
     # ── Walk the source ───────────────────────────────────────────────────
     $files = New-Object 'Collections.Generic.List[string]'
     $links = New-Object 'Collections.Generic.List[string]'
+    $folderLinks = New-Object 'Collections.Generic.List[string]'
     $dirs = New-Object 'Collections.Generic.List[string]'
     $stack = New-Object 'Collections.Generic.Stack[string]'
     $stack.Push($Source)
@@ -286,6 +299,8 @@ try {
                 throw "Link/junction encountered: $($item.FullName). Move it outside this folder."
             }
             if ($item.PSIsContainer) {
+                # The rule names the folder itself: link the folder once and leave its contents alone.
+                if (IsLinked $rel) { $folderLinks.Add($rel); continue }
                 $stack.Push($item.FullName)
                 if (Selected $rel) { $dirs.Add($rel) }
             } elseif (IsLinked $rel) { $links.Add($rel) }
@@ -336,8 +351,24 @@ try {
         $linked++
         Write-Host "Linked ($kind) $rel -> $Source"
     }
-    if ($pending.Count -gt 0) {
-        Write-Host ("Windows refused {0} link(s) for lack of rights." -f $pending.Count)
+    $folderLinked = 0
+    $pendingFolders = New-Object 'Collections.Generic.List[string]'
+    foreach ($rel in $folderLinks) {
+        $target = LocalPath $Source $rel
+        $linkPath = LocalPath $Destination $rel
+        ClearForLink $Source $Destination $rel
+        try {
+            $kind = NewLink $target $linkPath -Container
+        } catch {
+            $pendingFolders.Add($rel)
+            continue
+        }
+        AssertFolderLink $target $linkPath
+        $folderLinked++
+        Write-Host "Linked folder ($kind) $rel -> $target"
+    }
+    if ($pending.Count -gt 0 -or $pendingFolders.Count -gt 0) {
+        Write-Host ("Windows refused {0} link(s) for lack of rights." -f ($pending.Count + $pendingFolders.Count))
         New-LinkElevated $Source $Destination @($script:LinkRules)
         foreach ($rel in $pending) {
             $linkPath = LocalPath $Destination $rel
@@ -351,6 +382,11 @@ try {
             $linked++
             Write-Host "Linked $rel -> $Source"
         }
+        foreach ($rel in $pendingFolders) {
+            AssertFolderLink (LocalPath $Source $rel) (LocalPath $Destination $rel)
+            $folderLinked++
+            Write-Host "Linked folder $rel -> $(LocalPath $Source $rel)"
+        }
     }
     foreach ($rel in $dirs) { $null = New-Item -ItemType Directory -Path (LocalPath $Destination $rel) -Force }
 
@@ -359,7 +395,8 @@ try {
     $configurationPath = Write-PairConfiguration $Source $Destination $configurationPath $finalLines
 
     Write-Host ''
-    Write-Host ("Synced copy complete: {0} file(s) copied, {1} link(s) created, {2} folder(s) created." -f $files.Count, $linked, $dirs.Count)
+    Write-Host ("Synced copy complete: {0} file(s) copied, {1} file link(s), {2} folder link(s), {3} folder(s) created." -f
+        $files.Count, $linked, $folderLinked, $dirs.Count)
     Write-Host "Configuration: $configurationPath"
     Write-Host 'No version baseline was written; the first sync establishes it.'
     exit 0
